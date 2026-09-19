@@ -22,3 +22,6 @@ out/
 # Packaging / build output
 dist/
 build/
+
+# Generated sweep results (300M, regenerate rather than commit)
+outputs/
