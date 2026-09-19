@@ -771,6 +771,20 @@ def main():
             print(json.dumps(result))
             return
 
+        # ── Synthetic 1D branch ──────────────────────────────────────────────
+        # Imported here rather than at module scope so that loading a real
+        # dataset never pays for the simulator's import.
+        elif file_type in ('sim1d', 'ssg'):
+            import nmr_sim1d
+            try:
+                cfg = json.loads(file_content) if file_content.strip() else {}
+            except ValueError:
+                cfg = {}
+            if not isinstance(cfg, dict):
+                cfg = {}
+            print(json.dumps(nmr_sim1d.simulate_envelope(cfg)))
+            return
+
         # ── NMR-STAR branch ──────────────────────────────────────────────────
         elif file_type in ('str', 'nmrstar'):
             shifts = parse_nmr_star(file_content)

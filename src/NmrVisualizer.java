@@ -300,6 +300,40 @@ public class NmrVisualizer extends JFrame {
         sinoMenu.add(createLogMenuItem("Noise Region Selection", "Selecting noise calculation regions..."));
         btnSiNo.addActionListener(e -> sinoMenu.show(btnSiNo, 0, btnSiNo.getHeight()));
 
+        // ── Peak picking ────────────────────────────────────────────────
+        // The one Analyze entry backed by a real algorithm rather than a log
+        // line, so it is wired directly instead of through createLogMenuItem.
+        JButton btnPeaks = createToolbarButton("<html>Pic<u>k</u> Peaks \u25be</html>",
+                new VectorIcon("pickpeaks", 16, 16), null);
+        JPopupMenu peaksMenu = new JPopupMenu();
+
+        JMenuItem miPickInView = new JMenuItem("Pick Peaks in View");
+        miPickInView.setFont(FONT_SANS);
+        miPickInView.addActionListener(e -> pickPeaksInCurrentView());
+        peaksMenu.add(miPickInView);
+
+        JMenuItem miClearPeaks = new JMenuItem("Clear Picked Peaks");
+        miClearPeaks.setFont(FONT_SANS);
+        miClearPeaks.addActionListener(e -> {
+            plot2D.clearPickedPeaks();
+            log("Picked peak list cleared; showing the backend's peaks.");
+        });
+        peaksMenu.add(miClearPeaks);
+
+        JCheckBoxMenuItem miShowPeaks = new JCheckBoxMenuItem("Show Peak Labels", true);
+        miShowPeaks.setFont(FONT_SANS);
+        miShowPeaks.addActionListener(e -> plot2D.setShowTracePeaks(miShowPeaks.isSelected()));
+        peaksMenu.add(miShowPeaks);
+
+        peaksMenu.addSeparator();
+        JMenuItem miResetZoom = new JMenuItem("Reset Zoom (Full Spectrum)");
+        miResetZoom.setFont(FONT_SANS);
+        miResetZoom.addActionListener(e -> plot2D.resetTraceView());
+        peaksMenu.add(miResetZoom);
+
+        btnPeaks.addActionListener(e -> peaksMenu.show(btnPeaks, 0, btnPeaks.getHeight()));
+
+        leftAnalyzeButtons.add(btnPeaks);
         leftAnalyzeButtons.add(btnIntegrate);
         leftAnalyzeButtons.add(btnMultiplets);
         leftAnalyzeButtons.add(btnLineShapes);
@@ -369,7 +403,10 @@ public class NmrVisualizer extends JFrame {
         JButton btnDynamics = createToolbarButton("<html><u>D</u>ynamics ▾</html>", new VectorIcon("dynamics", 16, 16), null);
         
         JPopupMenu simulateMenu = new JPopupMenu();
-        simulateMenu.add(createLogMenuItem("Simulate 1D Spin System (ssg)", "Simulating 1D spin system (ssg)..."));
+        JMenuItem miSim1D = new JMenuItem("Simulate 1D Spin System (ssg)");
+        miSim1D.setFont(FONT_SANS);
+        miSim1D.addActionListener(e -> simulate1D());
+        simulateMenu.add(miSim1D);
         JMenuItem miSim2D = createLogMenuItem("Simulate 2D Correlation Map", "Simulating 2D correlation map...");
         miSim2D.addActionListener(e -> runBruker2DPlotter());
         simulateMenu.add(miSim2D);
@@ -763,6 +800,7 @@ public class NmrVisualizer extends JFrame {
         plot2D.setContourScrollListener(this::handleContourScroll);
         plot2D.setIntensityScaleListener(this::showIntensityScale);
         plot2D.setRegionSelectListener(this::openRegionWindow);
+        plot2D.setTraceRegionListener(this::reportTraceRegion);
         plot2D.setToolTipText("<html>Drag a box to open that region in its own window.<br>"
                 + "Right-drag or shift-drag to pan. Scroll to change the contour level.</html>");
         plot2D.setBorder(BorderFactory.createLineBorder(COLOR_BLUE_BORDER));
@@ -1377,6 +1415,90 @@ public class NmrVisualizer extends JFrame {
     }
 
     // Applies an already-decoded response to the data model and UI. EDT only.
+    /**
+     * Pick peaks over the ppm window currently on screen.
+     *
+     * Deliberately "in view" rather than "in the spectrum": re-picking after a
+     * region zoom is what lets a weak line be found at all, because the noise
+     * floor is then measured inside the region instead of being dominated by
+     * the tallest peak in the spectrum.
+     */
+    private void pickPeaksInCurrentView() {
+        if (loadedDimension != 1) {
+            log("Peak picking applies to 1D spectra - load or simulate one first.");
+            setStatus("Peak picking needs a 1D spectrum");
+            return;
+        }
+        int found = plot2D.pickPeaksInView();
+        double[] range = plot2D.viewPpmRange();
+        if (found == 0) {
+            log(String.format("No peaks above the noise threshold in %.3f - %.3f ppm.",
+                    range[0], range[1]));
+            setStatus("No peaks found in view");
+        } else {
+            log(String.format("Picked %d peak%s in %.3f - %.3f ppm.",
+                    found, found == 1 ? "" : "s", range[0], range[1]));
+            setStatus("Picked " + found + " peak" + (found == 1 ? "" : "s"));
+        }
+        plot2D.repaint();
+    }
+
+    /** Status line after a 1D region zoom or reset. */
+    private void reportTraceRegion() {
+        double[] range = plot2D.viewPpmRange();
+        int peaks = plot2D.pickedPeakCount();
+        setStatus(String.format("%.3f - %.3f ppm  |  %d peak%s",
+                range[0], range[1], peaks, peaks == 1 ? "" : "s"));
+    }
+
+    /**
+     * Run the synthetic 1D spin-system simulator and display the result.
+     *
+     * Goes through the same backend call and the same applyBackendResponse()
+     * as a loaded dataset, so a simulated spectrum exercises exactly the
+     * display, peak-picking and region-zoom paths a real one does rather than
+     * a parallel set that could drift out of step with them.
+     */
+    private void simulate1D() {
+        if (loadInFlight) {
+            log("A load is already running; simulation skipped.");
+            return;
+        }
+        log("Simulating 1D spin system (ssg)...");
+        setStatus("Simulating 1D spin system...");
+
+        currentFileType = "sim1d";
+        currentFileContent = "";
+
+        loadInFlight = true;
+        new Thread(() -> {
+            ParsedResponse parsed = null;
+            Exception failure = null;
+            try {
+                // An empty config asks the simulator for its default spin
+                // system; the payload is the hook for a parameter dialog later.
+                parsed = parseResponse(runPythonBackend(
+                        "sim1d", "1H", "Intensity", "Intensity", "{}"));
+            } catch (Exception ex) {
+                failure = ex;
+            }
+            final ParsedResponse finalParsed = parsed;
+            final Exception finalFailure = failure;
+            SwingUtilities.invokeLater(() -> {
+                loadInFlight = false;
+                if (finalFailure != null) {
+                    log("ERROR: Simulation failed: " + finalFailure.getMessage());
+                    setStatus("Simulation failed");
+                    return;
+                }
+                applyBackendResponse(finalParsed, "1H", "Intensity", "Intensity");
+                // Fit and pick once the trace is in place, so the spectrum
+                // arrives already labelled rather than needing a second click.
+                plot2D.resetTraceView();
+            });
+        }, "nmr-sim1d").start();
+    }
+
     private void applyBackendResponse(ParsedResponse parsed, String x, String y, String z) {
         if (!parsed.ok) {
             log("ERROR FROM PARSER: " + parsed.errorMessage);
@@ -2883,11 +3005,278 @@ public class NmrVisualizer extends JFrame {
 
         // 1D intensity scaling. The wheel means "make the peaks taller/shorter"
         // on a 1D spectrum, the way it means "raise/lower the contour threshold"
-        // on a 2D one. Both end stops are generous: a 1D spectrum routinely
-        // needs a x1000 blow-up to bring impurity peaks off the baseline.
+        // on a 2D one.
+        //
+        // The end stops are deliberately tight. An unbounded wheel lets the
+        // trace grow until it is a vertical line off the top of the panel, or
+        // shrink until it is indistinguishable from the baseline, and both
+        // states look like the spectrum has been lost rather than zoomed. x100
+        // is still enough to lift an impurity off the baseline, and the 0.5
+        // floor keeps the whole spectrum on screen at its shortest.
         private static final double INTENSITY_SCROLL_STEP = 1.15;
-        private static final double TRACE_SCALE_MIN = 0.02;
-        private static final double TRACE_SCALE_MAX = 20000.0;
+        private static final double TRACE_SCALE_MIN = 0.5;
+        private static final double TRACE_SCALE_MAX = 100.0;
+
+        // ── 1D peak picking ─────────────────────────────────────────────────
+        //
+        // Picking runs over the trace inside the current ppm window, but the
+        // noise floor it picks against is measured over the whole spectrum.
+        //
+        // That split matters. Noise is a property of the acquisition, not of
+        // wherever the viewport happens to sit, and a median-absolute-deviation
+        // estimate taken inside a signal-dense window is inflated by the real
+        // lines in it - which raises the threshold and finds *fewer* peaks the
+        // further you zoom in, the exact opposite of what region zoom is for.
+        // Measured globally the estimate stays on the baseline, so zooming in
+        // reveals more: the per-region cap then spends all 60 slots on the
+        // window instead of spreading them across the spectrum.
+        private List<DataPoint> tracePeaks = new ArrayList<>();
+        private boolean showTracePeaks = true;
+
+        // Height over the local noise floor a maximum needs to clear. The same
+        // multiple nmr_1d.py's picker uses, so a spectrum picks the same lines
+        // whichever path produced it.
+        private static final double PEAK_NOISE_MULT = 8.0;
+        // The trace is a min/max envelope, so consecutive vertices zigzag and
+        // every upper vertex is a local maximum against its immediate
+        // neighbours. Requiring a vertex to beat everything within this many
+        // positions either side steps over the zigzag to the real apex.
+        private static final int PEAK_WINDOW = 3;
+        // Minimum gap between two accepted apexes, in envelope vertices. Wide
+        // enough to collapse the plateau across one line's top, narrow enough
+        // to keep the legs of a J-coupled multiplet apart.
+        private static final int PEAK_MIN_SEPARATION = 4;
+        private static final int PEAK_MAX_COUNT = 60;
+
+        private double noiseThresholdCache = 0.0;
+        private boolean noiseThresholdValid = false;
+
+        /**
+         * Re-pick peaks from the trace inside the current ppm window.
+         *
+         * Returns how many were found. The list is ranked by intensity and
+         * labelled P1..Pn in that order, which is the convention the backend's
+         * own picker uses, so the two are interchangeable downstream.
+         */
+        public int pickPeaksInView() {
+            tracePeaks = new ArrayList<>();
+            if (dimension != 1 || trace.length < 8) return 0;
+
+            double lo = Math.min(viewMinX, viewMaxX);
+            double hi = Math.max(viewMinX, viewMaxX);
+
+            int vertexCount = trace.length / 2;
+            int[] idx = new int[vertexCount];
+            int count = 0;
+            for (int v = 0; v < vertexCount; v++) {
+                double tx = trace[v * 2];
+                if (tx >= lo && tx <= hi) idx[count++] = v;
+            }
+            if (count < 2 * PEAK_WINDOW + 3) return 0;
+
+            double[] ys = new double[count];
+            for (int i = 0; i < count; i++) ys[i] = trace[idx[i] * 2 + 1];
+
+            double threshold = noiseThreshold();
+
+            // Candidate apexes: above the noise floor and the largest value in
+            // their neighbourhood. '>' on one side and '>=' on the other breaks
+            // ties on a flat top in favour of a single vertex.
+            List<Integer> candidates = new ArrayList<>();
+            for (int i = PEAK_WINDOW; i < count - PEAK_WINDOW; i++) {
+                double y = ys[i];
+                if (y <= threshold) continue;
+                boolean apex = true;
+                for (int k = -PEAK_WINDOW; k <= PEAK_WINDOW; k++) {
+                    if (k == 0) continue;
+                    if (k < 0 ? ys[i + k] >= y : ys[i + k] > y) { apex = false; break; }
+                }
+                if (apex) candidates.add(i);
+            }
+            if (candidates.isEmpty()) return 0;
+
+            // Tallest first, then accept greedily while keeping accepted apexes
+            // apart. Ranking before thinning means a broad line contributes its
+            // true apex, not whichever shoulder came first in ppm order.
+            candidates.sort((a, b) -> Double.compare(ys[b], ys[a]));
+
+            List<Integer> accepted = new ArrayList<>();
+            for (int cand : candidates) {
+                if (accepted.size() >= PEAK_MAX_COUNT) break;
+                boolean clash = false;
+                for (int taken : accepted) {
+                    if (Math.abs(taken - cand) < PEAK_MIN_SEPARATION) { clash = true; break; }
+                }
+                if (!clash) accepted.add(cand);
+            }
+
+            for (int rank = 0; rank < accepted.size(); rank++) {
+                int i = accepted.get(rank);
+                double px = trace[idx[i] * 2];
+                double py = ys[i];
+                tracePeaks.add(new DataPoint("P" + (rank + 1), "PEAK", px, py, py));
+            }
+            return tracePeaks.size();
+        }
+
+        // The auto-fit intensity span of the ppm window currently on screen.
+        // Kept so the wheel's end stops stay relative to what is displayed.
+        private double traceAutoSpanY = 0.0;
+
+        // Notified after a region zoom or a reset, so the window can report the
+        // new ppm range and peak count.
+        private Runnable traceRegionListener;
+
+        public void setTraceRegionListener(Runnable listener) {
+            this.traceRegionListener = listener;
+        }
+
+        /** The ppm window on screen: {min, max}. */
+        public double[] viewPpmRange() {
+            return new double[] { Math.min(viewMinX, viewMaxX), Math.max(viewMinX, viewMaxX) };
+        }
+
+        public int pickedPeakCount() {
+            return activePeakList().size();
+        }
+
+        /**
+         * Fit the intensity axis to the trace inside [lo, hi].
+         *
+         * Records the span it chose as well as applying it, because the wheel's
+         * end stops are measured against the current window's auto-fit rather
+         * than the whole spectrum's.
+         */
+        private void autoScaleTraceY(double lo, double hi) {
+            double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+            for (int v = 0; v + 1 < trace.length; v += 2) {
+                double tx = trace[v];
+                if (tx < lo || tx > hi) continue;
+                double ty = trace[v + 1];
+                if (ty < minY) minY = ty;
+                if (ty > maxY) maxY = ty;
+            }
+            if (minY > maxY) return;                  // nothing inside the window
+            double span = maxY - minY;
+            if (span <= 0.0) span = Math.abs(maxY) > 0.0 ? Math.abs(maxY) : 1.0;
+            viewMaxY = maxY + span * 0.08;            // headroom over the tallest line
+            viewMinY = minY - span * 0.04;
+            traceAutoSpanY = viewMaxY - viewMinY;
+        }
+
+        /**
+         * Zoom a 1D trace to the dragged ppm window.
+         *
+         * The intensity axis is re-fitted to what the window contains instead
+         * of being carried over, so a weak multiplet fills the panel as soon as
+         * it is selected - the thing that makes region zoom worth using - and
+         * the peaks are re-picked against the noise inside the new window.
+         */
+        private void zoomTraceToRegion(int fromPx, int toPx) {
+            int plotWidth = getWidth() - marginLeft - marginRight;
+            if (plotWidth <= 0 || trace.length < 4) return;
+
+            double x1 = screenToDataX(fromPx, plotWidth);
+            double x2 = screenToDataX(toPx, plotWidth);
+            double lo = Math.min(x1, x2), hi = Math.max(x1, x2);
+            if (hi <= lo) return;
+
+            // Refuse a window finer than the trace can resolve: it would land
+            // between two vertices and display an empty panel.
+            double fullSpan = Math.abs(dataMaxX - dataMinX);
+            if (fullSpan > 0.0 && (hi - lo) < fullSpan * 1e-4) return;
+
+            viewMinX = lo; viewMaxX = hi;
+            autoScaleTraceY(lo, hi);
+            pickPeaksInView();
+            invalidateContourLayer();
+            repaint();
+            if (traceRegionListener != null) traceRegionListener.run();
+        }
+
+        /** Back to the whole spectrum, re-fitted and re-picked. */
+        public void resetTraceView() {
+            if (dimension != 1) { resetView(); return; }
+            // Reachable from the menu before anything is loaded, where there is
+            // no extent to reset to and dataMinX == dataMaxX would collapse the
+            // ppm axis onto a single value.
+            if (trace.length < 4) return;
+            clearHomeView();
+            viewMinX = dataMinX; viewMaxX = dataMaxX;
+            autoScaleTraceY(dataMinX, dataMaxX);
+            pickPeaksInView();
+            invalidateContourLayer();
+            repaint();
+            if (traceRegionListener != null) traceRegionListener.run();
+        }
+
+        /**
+         * Noise floor for the whole trace, computed once per loaded spectrum.
+         *
+         * Cached because it walks every vertex and sorts twice, and the answer
+         * cannot change until a new trace arrives - re-deriving it on each of
+         * the sixty-odd picks a region-zoom session triggers would be pure
+         * waste.
+         */
+        private double noiseThreshold() {
+            if (noiseThresholdValid) return noiseThresholdCache;
+            int vertexCount = trace.length / 2;
+            double[] all = new double[vertexCount];
+            for (int v = 0; v < vertexCount; v++) all[v] = trace[v * 2 + 1];
+            double median = medianOf(all);
+            noiseThresholdCache = median + PEAK_NOISE_MULT * madSigma(all, median);
+            noiseThresholdValid = true;
+            return noiseThresholdCache;
+        }
+
+        /** Drop the picked list, so the display falls back to the backend's peaks. */
+        public void clearPickedPeaks() {
+            tracePeaks = new ArrayList<>();
+            repaint();
+        }
+
+        public boolean isShowTracePeaks() { return showTracePeaks; }
+
+        public void setShowTracePeaks(boolean show) {
+            this.showTracePeaks = show;
+            repaint();
+        }
+
+        /** What the 1D painter labels: a fresh pick when there is one, else the backend's. */
+        private List<DataPoint> activePeakList() {
+            return tracePeaks.isEmpty() ? points : tracePeaks;
+        }
+
+        private static double medianOf(double[] values) {
+            double[] copy = values.clone();
+            java.util.Arrays.sort(copy);
+            int n = copy.length;
+            if (n == 0) return 0.0;
+            return (n % 2 == 1) ? copy[n / 2] : 0.5 * (copy[n / 2 - 1] + copy[n / 2]);
+        }
+
+        /**
+         * Noise sigma from the median absolute deviation.
+         *
+         * Peaks are a small, very tall minority of the points, so they drag a
+         * standard deviation upward badly; the MAD ignores them, and 1.4826 is
+         * the factor that turns it back into a Gaussian sigma. Same estimator
+         * as nmr_1d.estimate_noise().
+         */
+        private static double madSigma(double[] values, double median) {
+            if (values.length == 0) return 0.0;
+            double[] dev = new double[values.length];
+            for (int i = 0; i < values.length; i++) dev[i] = Math.abs(values[i] - median);
+            double sigma = 1.4826 * medianOf(dev);
+            if (sigma > 0.0) return sigma;
+
+            // A synthetic spectrum with noise switched off has a zero MAD;
+            // fall back to the spread so the threshold stays meaningful.
+            double min = Double.MAX_VALUE, max = -Double.MAX_VALUE;
+            for (double v : values) { if (v < min) min = v; if (v > max) max = v; }
+            double span = max - min;
+            return span > 0.0 ? span * 1e-3 : 1.0;
+        }
 
         private java.awt.image.BufferedImage contourLayer;
         // When false, negative levels are drawn in the positive blue with the
@@ -3116,7 +3505,12 @@ public class NmrVisualizer extends JFrame {
 
             // The spectrum follows the cursor, so the window moves the other way.
             viewMinX = panFromMinX - dx; viewMaxX = panFromMaxX - dx;
-            viewMinY = panFromMinY - dy; viewMaxY = panFromMaxY - dy;
+            // A 1D pan stays on the ppm axis. Dragging the intensity axis off
+            // its baseline just loses the spectrum, and the wheel already owns
+            // vertical scaling.
+            if (dimension != 1) {
+                viewMinY = panFromMinY - dy; viewMaxY = panFromMaxY - dy;
+            }
 
             invalidateContourLayer();
             markInteracting();
@@ -3201,7 +3595,12 @@ public class NmrVisualizer extends JFrame {
         private void scaleTraceIntensity(double wheelRotation) {
             if (trace.length < 4) return;
             double span = viewMaxY - viewMinY;
-            double dataSpan = dataMaxY - dataMinY;
+            // Measured against the auto-fit of the window on screen, not of the
+            // whole spectrum. Without this, region-zooming onto a weak
+            // multiplet already sits far past x100 before the wheel is touched,
+            // and the first notch would yank the view back instead of nudging
+            // it. x100 now means the same thing at every zoom level.
+            double dataSpan = traceAutoSpanY > 0.0 ? traceAutoSpanY : dataMaxY - dataMinY;
             if (span <= 0 || dataSpan <= 0) return;
 
             double scale = dataSpan / span;                     // 1.0 = auto-fit height
@@ -3239,9 +3638,22 @@ public class NmrVisualizer extends JFrame {
                 }
 
                 public void mousePressed(MouseEvent e) {
-                    // 1D keeps the wheel as its only gesture: a trace has no
-                    // second axis to box-select on.
-                    if (dimension == 1) return;
+                    if (dimension == 1) {
+                        if (trace.length < 4) return;
+                        // Double-click is the way back out of a region zoom.
+                        if (e.getClickCount() == 2) {
+                            resetTraceView();
+                            return;
+                        }
+                        panning = SwingUtilities.isRightMouseButton(e)
+                                || SwingUtilities.isMiddleMouseButton(e)
+                                || e.isShiftDown();
+                        dragAnchor = e.getPoint();
+                        dragCurrent = e.getPoint();
+                        panFromMinX = viewMinX; panFromMaxX = viewMaxX;
+                        panFromMinY = viewMinY; panFromMaxY = viewMaxY;
+                        return;
+                    }
                     if (points.isEmpty() && contourLines.isEmpty()) return;
                     panning = SwingUtilities.isRightMouseButton(e)
                             || SwingUtilities.isMiddleMouseButton(e)
@@ -3271,6 +3683,15 @@ public class NmrVisualizer extends JFrame {
                     panning = false;
                     repaint();
                     if (wasPanning || to == null) return;
+
+                    if (dimension == 1) {
+                        // Only the horizontal extent matters: the vertical axis
+                        // is intensity, and it is re-fitted to whatever the
+                        // chosen ppm window turns out to contain.
+                        if (Math.abs(to.x - from.x) < MIN_SELECT_PX) return;
+                        zoomTraceToRegion(from.x, to.x);
+                        return;
+                    }
                     if (Math.abs(to.x - from.x) < MIN_SELECT_PX
                             || Math.abs(to.y - from.y) < MIN_SELECT_PX) {
                         return;         // a click, or a slip - not a selection
@@ -3325,6 +3746,8 @@ public class NmrVisualizer extends JFrame {
             contourLines = new ArrayList<>();
             trace = NO_TRACE;
             dimension = 2;
+            noiseThresholdValid = false;
+            tracePeaks = new ArrayList<>();
             hoveredPoint = null;
             hoveredScreenPos = null;
             xLabel = "X";
@@ -3346,6 +3769,8 @@ public class NmrVisualizer extends JFrame {
         public void setTrace(double[] tracePoints, int dim) {
             this.trace = tracePoints != null ? tracePoints : NO_TRACE;
             this.dimension = dim;
+            noiseThresholdValid = false;
+            tracePeaks = new ArrayList<>();
         }
         
         private void calculateRanges() {
@@ -3418,6 +3843,7 @@ public class NmrVisualizer extends JFrame {
                 viewMinY = dataMinY;
                 viewMaxY = dataMaxY;
             }
+            if (dimension == 1) traceAutoSpanY = viewMaxY - viewMinY;
             invalidateContourLayer();
             repaint();
         }
@@ -3608,7 +4034,7 @@ public class NmrVisualizer extends JFrame {
             // placed keeps the strongest peaks legible in a crowded multiplet.
             List<Integer> labelledAt = new ArrayList<>();
             g2.setFont(new Font("Arial", Font.PLAIN, 9));
-            for (DataPoint p : points) {
+            for (DataPoint p : (showTracePeaks ? activePeakList() : java.util.Collections.<DataPoint>emptyList())) {
                 if (p.x < lo || p.x > hi) continue;
                 int px = trace1dX(p.x, plotWidth);
                 int py = trace1dY(p.y, plotHeight);
@@ -3624,6 +4050,24 @@ public class NmrVisualizer extends JFrame {
                 labelledAt.add(px);
                 g2.setColor(COLOR_CHARCOAL);
                 g2.drawString(String.format("%.2f", p.x), px - 10, py - 13);
+            }
+
+            // The selection band. paint1D returns before the 2D rubber band is
+            // reached, and a full height band reads better here anyway: only
+            // the ppm extent of a 1D drag is used, so drawing a box would
+            // suggest the vertical extent mattered.
+            if (dragAnchor != null && dragCurrent != null && !panning) {
+                int rx = Math.min(dragAnchor.x, dragCurrent.x);
+                int rw = Math.abs(dragCurrent.x - dragAnchor.x);
+                if (rw >= 1) {
+                    g2.setColor(SELECT_FILL);
+                    g2.fillRect(rx, marginTop, rw, plotHeight);
+                    g2.setColor(SELECT_EDGE);
+                    g2.setStroke(SELECT_STROKE);
+                    g2.drawLine(rx, marginTop, rx, marginTop + plotHeight);
+                    g2.drawLine(rx + rw, marginTop, rx + rw, marginTop + plotHeight);
+                    g2.setStroke(new BasicStroke(1.0f));
+                }
             }
 
             g2.setClip(oldClip);
