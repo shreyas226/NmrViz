@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PeakList modified="2015-02-20T17:20:51">
+  <PeakList1D>
+    <PeakList1DHeader creator="SACHIN" date="2015-02-20T17:20:51" expNo="4" name="28_Adilakshmi" owner="" procNo="1" source="F:\Sachinbdvt\data\15_Feb\nmr">
+      <PeakPickDetails>F1=167.356ppm, F2=160.510ppm, MI=0.15cm, MAXI=2.30cm, PC=1.400
+      </PeakPickDetails>
+    </PeakList1DHeader>
+    <Peak1D F1="164.8427" intensity="1.35" type="0"/>
+    <Peak1D F1="163.6070" intensity="1.12" type="0"/>
+    <Peak1D F1="163.5612" intensity="1.07" type="0"/>
+    <Peak1D F1="162.8805" intensity="0.27" type="0"/>
+  </PeakList1D>
+  <PeakList1D>
+    <PeakList1DHeader creator="SACHIN" date="2015-02-20T17:20:51" expNo="4" name="28_Adilakshmi" owner="" procNo="1" source="F:\Sachinbdvt\data\15_Feb\nmr">
+      <PeakPickDetails>F1=154.272ppm, F2=144.231ppm, MI=0.51cm, MAXI=3.20cm, PC=1.400
+      </PeakPickDetails>
+    </PeakList1DHeader>
+    <Peak1D F1="148.4240" intensity="1.66" type="0"/>
+  </PeakList1D>
+  <PeakList1D>
+    <PeakList1DHeader creator="SACHIN" date="2015-02-20T17:20:51" expNo="4" name="28_Adilakshmi" owner="" procNo="1" source="F:\Sachinbdvt\data\15_Feb\nmr">
+      <PeakPickDetails>F1=137.080ppm, F2=106.500ppm, MI=0.42cm, MAXI=9.33cm, PC=1.400
+      </PeakPickDetails>
+    </PeakList1DHeader>
+    <Peak1D F1="132.4609" intensity="1.86" type="0"/>
+    <Peak1D F1="132.2978" intensity="7.69" type="0"/>
+    <Peak1D F1="127.9095" intensity="1.63" type="0"/>
+    <Peak1D F1="125.9276" intensity="1.75" type="0"/>
+    <Peak1D F1="122.6340" intensity="7.69" type="0"/>
+    <Peak1D F1="121.4701" intensity="0.99" type="0"/>
+    <Peak1D F1="121.4223" intensity="1.03" type="0"/>
+    <Peak1D F1="114.3275" intensity="7.01" type="0"/>
+  </PeakList1D>
+  <PeakList1D>
+    <PeakList1DHeader creator="SACHIN" date="2015-02-20T17:20:51" expNo="4" name="28_Adilakshmi" owner="" procNo="1" source="F:\Sachinbdvt\data\15_Feb\nmr">
+      <PeakPickDetails>F1=82.765ppm, F2=73.789ppm, MI=1.27cm, MAXI=17.16cm, PC=1.400
+      </PeakPickDetails>
+    </PeakList1DHeader>
+    <Peak1D F1="77.3174" intensity="14.48" type="0"/>
+    <Peak1D F1="77.0000" intensity="15.00" type="0"/>
+    <Peak1D F1="76.6827" intensity="14.94" type="0"/>
+  </PeakList1D>
+  <PeakList1D>
+    <PeakList1DHeader creator="SACHIN" date="2015-02-20T17:20:51" expNo="4" name="28_Adilakshmi" owner="" procNo="1" source="F:\Sachinbdvt\data\15_Feb\nmr">
+      <PeakPickDetails>F1=69.529ppm, F2=58.118ppm, MI=0.30cm, MAXI=4.44cm, PC=1.400
+      </PeakPickDetails>
+    </PeakList1DHeader>
+    <Peak1D F1="68.3534" intensity="1.90" type="0"/>
+    <Peak1D F1="68.2564" intensity="1.83" type="0"/>
+    <Peak1D F1="64.7509" intensity="2.17" type="0"/>
+  </PeakList1D>
+  <PeakList1D>
+    <PeakList1DHeader creator="SACHIN" date="2015-02-20T17:20:51" expNo="4" name="28_Adilakshmi" owner="" procNo="1" source="F:\Sachinbdvt\data\15_Feb\nmr">
+      <PeakPickDetails>F1=36.971ppm, F2=10.498ppm, MI=0.34cm, MAXI=7.69cm, PC=1.400
+      </PeakPickDetails>
+    </PeakList1DHeader>
+    <Peak1D F1="31.9104" intensity="1.81" type="0"/>
+    <Peak1D F1="29.6277" intensity="3.50" type="0"/>
+    <Peak1D F1="29.5767" intensity="3.36" type="0"/>
+    <Peak1D F1="29.5500" intensity="3.20" type="0"/>
+    <Peak1D F1="29.3449" intensity="3.74" type="0"/>
+    <Peak1D F1="29.2157" intensity="2.50" type="0"/>
+    <Peak1D F1="29.1551" intensity="2.77" type="0"/>
+    <Peak1D F1="29.0948" intensity="2.77" type="0"/>
+    <Peak1D F1="29.0614" intensity="2.57" type="0"/>
+    <Peak1D F1="28.7162" intensity="2.35" type="0"/>
+    <Peak1D F1="25.9746" intensity="2.83" type="0"/>
+    <Peak1D F1="25.9292" intensity="3.48" type="0"/>
+    <Peak1D F1="22.6793" intensity="1.64" type="0"/>
+    <Peak1D F1="14.0998" intensity="1.42" type="0"/>
+  </PeakList1D>
+  <PeakList1D>
+    <PeakList1DHeader creator="SACHIN" date="2015-02-20T17:20:51" expNo="4" name="28_Adilakshmi" owner="" procNo="1" source="F:\Sachinbdvt\data\15_Feb\nmr">
+      <PeakPickDetails>F1=2.668ppm, F2=-3.694ppm, MI=0.25cm, MAXI=3.38cm, PC=1.400
+      </PeakPickDetails>
+    </PeakList1DHeader>
+    <Peak1D F1="-0.0204" intensity="0.37" type="0"/>
+  </PeakList1D>
+</PeakList>

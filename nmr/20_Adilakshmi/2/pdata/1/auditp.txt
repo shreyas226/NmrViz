@@ -1,0 +1,27 @@
+##TITLE= Audit trail, TOPSPIN		Version 3.2
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= SACHIN
+$$ F:\Sachinbdvt\data\15_Feb\nmr/20_Adilakshmi/2/pdata/1/auditp.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2015-02-20 15:09:17.160 +0530>,<av400>,<av400>,<go>,<TOPSPIN 2.1>,
+      <created by zg
+	started at 2015-02-20 13:56:32.361 +0530,
+	POWCHK enabled, PULCHK disabled,
+       configuration hash MD5:
+       EB 3D EE A4 F0 3E 8D FC E0 7B EE CB BD 92 ED DD
+       data hash MD5: 32K
+       98 4B 47 FE D6 A5 2D 65 72 1F 01 93 20 B2 48 33>)
+(   2,<2015-02-20 17:28:20.002 +0530>,<SACHIN>,<SACHIN>,<proc1d>,<TOPSPIN 3.2>,
+      <Start of raw data processing
+       efp LB = 3 FT_mod = 6 PKNL = 1 PHC0 = -36.98549 PHC1 = -106.3711 SI = 128K 
+       data hash MD5: 128K
+       7F DE B6 9D 52 7E 9E D5 50 FB 9C 8A 13 0F F3 90>)
+(   3,<2015-02-20 17:28:22.814 +0530>,<SACHIN>,<SACHIN>,<proc1d>,<TOPSPIN 3.2>,
+      <abs n ABSG = 5 
+       data hash MD5: 128K
+       F3 7F D2 82 FB 63 05 F5 D2 B6 C5 4B CE 45 FC 88>)
+##END=
+
+$$ hash MD5
+$$ 97 5F 6E AE 0F CF 8A A4 35 F4 F4 DD 80 75 FE 19

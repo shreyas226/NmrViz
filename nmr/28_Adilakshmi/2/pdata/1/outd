@@ -1,0 +1,17 @@
+##TITLE= Parameter file, TOPSPIN		Version 2.1
+##JCAMPDX= 5.0
+##DATATYPE= Parameter Values
+##NPOINTS= 1	$$ modification sequence number
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= av400
+$$ 2014-11-28 17:26:05.354 +0530  av400@av400
+$$ /opt/topspin/data/14_November/nmr/28_Adilakshmi/2/pdata/1/outd
+$$ process /opt/topspin/prog/mod/edparproc
+##$CURPLOT= <Cups-PDF>
+##$CURPRIN= <$Cups-PDF>
+##$DFORMAT= <normdp>
+##$LAYOUT= <+/1D_X.xwp>
+##$LFORMAT= <normlp>
+##$PFORMAT= <normpl>
+##$SURQMSG= 1
+##END=

@@ -1,0 +1,41 @@
+
+Current Data Parameters
+NAME      28_Adilakshmi              
+EXPNO                 1              
+PROCNO                1              
+
+F2 - Acquisition Parameters
+Date_          20141128              
+Time              17.33              
+INSTRUM           spect              
+PROBHD   5 mm PABBI 1H/              
+PULPROG              zg              
+TD                19328              
+SOLVENT           CDCl3              
+NS                   32              
+DS                    0              
+SWH            3865.979 Hz           
+FIDRES         0.200020 Hz           
+AQ            2.4997547 sec          
+RG                  203              
+DW              129.333 usec         
+DE                 6.50 usec         
+TE                298.0 K            
+D1           2.00000000 sec          
+TD0                   1              
+
+======== CHANNEL f1 ========
+NUC1                 1H              
+P1                 7.65 usec         
+PL1               -2.00 dB           
+PL1W        10.66182804 W            
+SFO1        400.2317595 MHz          
+
+F2 - Processing parameters
+SI               131072              
+SF          400.2300210 MHz          
+WDW                  EM              
+SSB      0              
+LB                 0.30 Hz           
+GB       0              
+PC                 1.00              

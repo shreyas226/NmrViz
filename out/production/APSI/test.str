@@ -1,0 +1,17 @@
+loop_
+   _Atom_shift_assign_ID
+   _Residue_seq_code
+   _Residue_label
+   _Atom_name
+   _Atom_type
+   _Chem_shift_value
+   _Chem_shift_value_error
+   _Chem_shift_ambiguity_code
+
+   1    1    MET    H     H    8.230    .    .
+   2    1    MET    N     N    120.10   .    .
+   3    1    MET    CA    C    54.45    .    .
+   4    2    GLN    H     H    8.90     .    .
+   5    2    GLN    N     N    123.22   .    .
+   6    2    GLN    CA    C    55.08    .    .
+stop_

@@ -1,0 +1,15 @@
+{
+  "image": "outputs/fine_sweep/fine_p0_-90_p1_0_b_0_c_1.png",
+  "score": 0.006257052533328533,
+  "config": {
+    "path": "/Users/shreyasreddy/Desktop/APSI/Data/METABOLITE/158/pdata/1",
+    "phc0_f2": -90.0,
+    "phc1_f2": 0.0,
+    "phc0_f1": 0.0,
+    "phc1_f1": 0.0,
+    "baseline_order": 0,
+    "calib_x": 0.0,
+    "calib_y": 0.0,
+    "contour_base": 1.0
+  }
+}

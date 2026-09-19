@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+APP_ROOT="$(cd "$(dirname "$0")/../Resources" && pwd)"
+JAVA="$(command -v java || true)"
+
+if [ -z "$JAVA" ]; then
+    osascript -e 'display dialog "APSY requires Java 17 or newer. Install a JDK and try again." buttons {"OK"} with title "APSY"'
+    exit 1
+fi
+
+exec "$JAVA" \
+    -Dapple.awt.application.name=APSY \
+    -Dapsy.resource.dir="$APP_ROOT" \
+    -cp "$APP_ROOT/classes" NmrVisualizer
