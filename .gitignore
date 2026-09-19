@@ -1,1 +1,24 @@
+# Datasets
 BROKER\ DATASET/
+
+# macOS
+.DS_Store
+
+# IDE / editor
+.idea/
+.vscode/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Java build output
+*.class
+out/
+
+# Packaging / build output
+dist/
+build/
