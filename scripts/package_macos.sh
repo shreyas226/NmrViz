@@ -21,7 +21,7 @@ cp "$ROOT/packaging/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/packaging/APSY-launcher" "$APP/Contents/MacOS/APSY"
 chmod +x "$APP/Contents/MacOS/APSY"
 
-javac -d "$CLASSES" "$ROOT/src/NmrVisualizer.java"
+javac -d "$CLASSES" "$ROOT"/src/*.java
 cp "$ROOT"/src/*.py "$RESOURCES/"
 
 python3 -m venv "$RESOURCES/.venv"

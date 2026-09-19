@@ -22,11 +22,18 @@ fi
 # Recompile when the source is newer than the last build, so double-clicking
 # after an edit does not silently run a stale class file.
 CLASSES="$ROOT/build/classes"
-if [ ! -f "$CLASSES/NmrVisualizer.class" ] || \
-   [ "$ROOT/src/NmrVisualizer.java" -nt "$CLASSES/NmrVisualizer.class" ]; then
+needs_build=0
+[ -f "$CLASSES/NmrVisualizer.class" ] || needs_build=1
+# Any source newer than the build, not just NmrVisualizer.java: the app is more
+# than one file now, and a stale Theme.class is just as wrong as a stale
+# NmrVisualizer.class.
+for src in "$ROOT"/src/*.java; do
+    [ "$src" -nt "$CLASSES/NmrVisualizer.class" ] && needs_build=1
+done
+if [ "$needs_build" = "1" ]; then
     echo "Compiling..."
     mkdir -p "$CLASSES"
-    javac -d "$CLASSES" "$ROOT/src/NmrVisualizer.java" || {
+    javac -d "$CLASSES" "$ROOT"/src/*.java || {
         echo "Compilation failed."
         read -r -p "Press Return to close."
         exit 1

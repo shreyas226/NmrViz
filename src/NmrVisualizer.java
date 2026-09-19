@@ -6,33 +6,31 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.List;
-import java.net.URI;
-import java.net.http.*;
-import java.util.concurrent.CompletableFuture;
 
 public class NmrVisualizer extends JFrame {
     // 2007-2012 Classic Light Era Styles Constants
-    private static final Color COLOR_BG = new Color(240, 243, 246);          // Silver-grey background
-    private static final Color COLOR_WHITE = Color.WHITE;
-    private static final Color COLOR_CHARCOAL = new Color(40, 40, 40);        // Text color
-    private static final Color COLOR_BLUE_BORDER = new Color(160, 181, 205);   // Steel blue borders
-    private static final Color COLOR_BLUE_ACCENT = new Color(211, 226, 242);   // Soft light blue header
-    private static final Color COLOR_PLOT_BLUE = new Color(30, 96, 145);       // Point markers color (Excel blue)
-    private static final Color COLOR_PLOT_HOVER = new Color(230, 57, 70);      // Red highlight on hover
-    private static final Color COLOR_GRID_LINE = new Color(225, 225, 225);     // Light grey grid lines
-    private static final Color COLOR_TOOLTIP_BG = new Color(255, 255, 204);    // Classic yellow tooltip
-    private static final Font FONT_SANS = new Font("Arial", Font.PLAIN, 12);
-    private static final Font FONT_SANS_BOLD = new Font("Arial", Font.BOLD, 12);
-    private static final Font FONT_TITLE = new Font("Arial", Font.BOLD, 14);
-    private static final Font FONT_LOG = new Font("Courier New", Font.PLAIN, 12); // Logs look good in mono
+    // Every value below is defined in Theme.java, the app's stylesheet. These
+    // are aliases so the existing call sites read unchanged; nothing here holds
+    // a colour or a font of its own. Change the look in Theme, not here.
+    private static final Color COLOR_BG = Theme.BG;
+    private static final Color COLOR_WHITE = Theme.SURFACE;
+    private static final Color COLOR_CHARCOAL = Theme.TEXT;
+    private static final Color COLOR_BLUE_BORDER = Theme.BORDER;
+    private static final Color COLOR_BLUE_ACCENT = Theme.ACCENT;
+    private static final Color COLOR_PLOT_BLUE = Theme.PLOT_LINE;
+    private static final Color COLOR_PLOT_HOVER = Theme.PLOT_HOVER;
+    private static final Color COLOR_GRID_LINE = Theme.GRID_LINE;
+    private static final Color COLOR_TOOLTIP_BG = Theme.TOOLTIP_BG;
+    private static final Font FONT_SANS = Theme.SANS;
+    private static final Font FONT_SANS_BOLD = Theme.SANS_BOLD;
+    private static final Font FONT_TITLE = Theme.TITLE;
+    private static final Font FONT_LOG = Theme.MONO;
 
-    // Ribbon palette - one shade per tab, reused by both the toolbar body and the
-    // tab button that selects it.
-    private static final Color RIBBON_PROCESS = new Color(0, 46, 71);      // dark blue-slate
-    private static final Color RIBBON_ANALYZE = new Color(8, 29, 44);      // indigo-navy
-    private static final Color RIBBON_APPS    = new Color(10, 51, 45);     // deep pine teal
-    private static final Color RIBBON_MANAGE  = new Color(43, 27, 36);     // blackberry plum
-    private static final Color RIBBON_IDLE    = new Color(0, 37, 58);
+    private static final Color RIBBON_PROCESS = Theme.RIBBON_PROCESS;
+    private static final Color RIBBON_ANALYZE = Theme.RIBBON_ANALYZE;
+    private static final Color RIBBON_APPS    = Theme.RIBBON_APPS;
+    private static final Color RIBBON_MANAGE  = Theme.RIBBON_MANAGE;
+    private static final Color RIBBON_IDLE    = Theme.RIBBON_IDLE;
 
     // App State
     private String currentFileContent = "";
@@ -115,14 +113,22 @@ public class NmrVisualizer extends JFrame {
     
     private NmrPlot2D plot2D;
 
-    // One client for the process: each HttpClient carries its own connection pool
-    // and selector thread, and the old code built a fresh one per fetch.
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
-
     public NmrVisualizer() {
         // Pay the worker's Python import cost now, while the user is still picking
         // a file, rather than inside the first load.
-        Thread warmup = new Thread(() -> pythonWorker.start(pythonExecutable()), "python-worker-warmup");
+        Thread warmup = new Thread(() -> {
+            String exec = pythonExecutable();
+            SwingUtilities.invokeLater(() -> {
+                if ("python3".equals(exec)) {
+                    log("WARNING: no .venv found - falling back to python3 on PATH, "
+                        + "which usually lacks numpy/nmrglue/contourpy. "
+                        + "Launch through scripts/APSY.command to use the project venv.");
+                } else {
+                    log("Python interpreter: " + exec);
+                }
+            });
+            pythonWorker.start(exec);
+        }, "python-worker-warmup");
         warmup.setDaemon(true);
         warmup.start();
 
@@ -347,7 +353,7 @@ public class NmrVisualizer extends JFrame {
 
         // ----------------- CREATE TAB NAVIGATION ROW 1 -----------------
         JPanel ribbonHeaderPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        ribbonHeaderPanel.setBackground(new Color(0, 23, 37)); // Extra deep dark blue `#001725`
+        ribbonHeaderPanel.setBackground(Theme.RIBBON_HEADER);
         ribbonHeaderPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0, 36, 56)));
         
         JButton btnHamburger = new JButton(new VectorIcon("hamburger", 16, 16));
@@ -493,8 +499,8 @@ public class NmrVisualizer extends JFrame {
         
         // Create the secondary spectral interaction toolbar (TopSpin style, lighter than ribbon)
         JPanel secToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 3));
-        secToolbar.setBackground(new Color(230, 235, 242)); // Light steel blue/silver
-        secToolbar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(195, 205, 218)));
+        secToolbar.setBackground(Theme.TOOLBAR_BG);
+        secToolbar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.TOOLBAR_EDGE));
         
         JButton btnScaleUp = createSecToolbarButton("*2", "Scale Up (Double Amplitude)");
         btnScaleUp.addActionListener(e -> {
@@ -584,20 +590,20 @@ public class NmrVisualizer extends JFrame {
         
         secToolbar.add(btnScaleUp);
         secToolbar.add(btnScaleDown);
-        secToolbar.add(new JLabel("|") {{ setForeground(new Color(170, 180, 195)); }});
+        secToolbar.add(new JLabel("|") {{ setForeground(Theme.TOOLBAR_SEPARATOR); }});
         secToolbar.add(btnVStretch);
         secToolbar.add(btnHStretch);
-        secToolbar.add(new JLabel("|") {{ setForeground(new Color(170, 180, 195)); }});
+        secToolbar.add(new JLabel("|") {{ setForeground(Theme.TOOLBAR_SEPARATOR); }});
         secToolbar.add(btnVZoom);
         secToolbar.add(btnHZoom);
         secToolbar.add(btnResetScale);
-        secToolbar.add(new JLabel("|") {{ setForeground(new Color(170, 180, 195)); }});
+        secToolbar.add(new JLabel("|") {{ setForeground(Theme.TOOLBAR_SEPARATOR); }});
         secToolbar.add(btnZoomIn2);
         secToolbar.add(btnZoomOut2);
         secToolbar.add(btnPrevZoom);
         secToolbar.add(btnFit);
         secToolbar.add(btnRefresh);
-        secToolbar.add(new JLabel("|") {{ setForeground(new Color(170, 180, 195)); }});
+        secToolbar.add(new JLabel("|") {{ setForeground(Theme.TOOLBAR_SEPARATOR); }});
         secToolbar.add(btnToggleGrid);
         
         JPanel topContainer = new JPanel();
@@ -613,54 +619,29 @@ public class NmrVisualizer extends JFrame {
         JPanel sidebar = new JPanel();
         sidebar.setLayout(new BoxLayout(sidebar, BoxLayout.Y_AXIS));
         sidebar.setBackground(COLOR_BG);
-        sidebar.setPreferredSize(new Dimension(320, 0));
+        sidebar.setPreferredSize(new Dimension(Theme.SIDEBAR_WIDTH, 0));
         sidebar.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(0, 0, 0, 1, COLOR_BLUE_BORDER),
-            BorderFactory.createEmptyBorder(10, 10, 10, 10)
-        ));
+            Theme.edge(0, 0, 0, 1), Theme.padding(Theme.SIDEBAR_PADDING)));
         
-        // File Loader Box - two rows, not three; the spare row was showing as dead space.
-        JPanel fileBox = new JPanel(new GridLayout(2, 1, 6, 6));
-        fileBox.setBackground(COLOR_BG);
-        fileBox.setBorder(createRetroBorder("1. DATA IMPORT"));
-        
+        // One row for one button. GridLayout(2, 1) kept reserving a second row
+        // after the BMRB fetch control was removed, which is what left an empty
+        // band under the load button.
+        JPanel fileBox = Theme.sectionPanel("1. DATA IMPORT", new GridLayout(1, 1));
+
         JButton btnLoadLocal = createRetroButton("LOAD LOCAL FILE (.str / .csv)");
         btnLoadLocal.addActionListener(e -> chooseLocalFile());
         fileBox.add(btnLoadLocal);
-        
-        JPanel bmrbPanel = new JPanel(new BorderLayout(5, 0));
-        bmrbPanel.setBackground(COLOR_BG);
-        JTextField tfBmrbId = new JTextField();
-        tfBmrbId.setBackground(COLOR_WHITE);
-        tfBmrbId.setForeground(COLOR_CHARCOAL);
-        tfBmrbId.setFont(FONT_SANS);
-        tfBmrbId.setBorder(BorderFactory.createLineBorder(COLOR_BLUE_BORDER));
-        tfBmrbId.setCaretColor(COLOR_CHARCOAL);
-        tfBmrbId.setText("11508");
-        
-        JButton btnFetch = createRetroButton("FETCH");
-        btnFetch.setPreferredSize(new Dimension(80, 0));
-        btnFetch.addActionListener(e -> fetchBmrb(tfBmrbId.getText().trim()));
-        
-        bmrbPanel.add(new JLabel(" BMRB ID: ") {{
-            setFont(FONT_SANS);
-            setForeground(COLOR_CHARCOAL);
-        }}, BorderLayout.WEST);
-        bmrbPanel.add(tfBmrbId, BorderLayout.CENTER);
-        bmrbPanel.add(btnFetch, BorderLayout.EAST);
-        
-        fileBox.add(bmrbPanel);
-        
+
         sidebar.add(fileBox);
-        sidebar.add(Box.createVerticalStrut(10));
+        sidebar.add(Box.createVerticalStrut(Theme.SPACE_LG));
         
         // Configuration Box
-        JPanel configBox = new JPanel(new GridBagLayout());
-        configBox.setBackground(COLOR_BG);
-        configBox.setBorder(createRetroBorder("2. AXIS & DRAG CONFIG"));
+        JPanel configBox = Theme.sectionPanel("2. AXIS & DRAG CONFIG", new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(3, 4, 3, 4);
+        // Roomier vertically than horizontally: rows need separating, a label
+        // and its field belong together.
+        gbc.insets = new Insets(Theme.SPACE_XS, 0, Theme.SPACE_XS, Theme.SPACE_SM);
         
         // Dropdowns
         comboX = createRetroComboBox();
@@ -672,28 +653,16 @@ public class NmrVisualizer extends JFrame {
         comboY.addItem("N");
         comboZ.addItem("CA");
         
-        cbInvertX = new JCheckBox("INVERT X AXIS", true);
-        cbInvertX.setFont(FONT_SANS_BOLD);
-        cbInvertX.setForeground(COLOR_CHARCOAL);
-        cbInvertX.setBackground(COLOR_BG);
-        cbInvertX.setFocusPainted(false);
+        cbInvertX = Theme.checkBox("INVERT X AXIS", true);
         cbInvertX.addActionListener(e -> updatePlots());
-        
-        cbInvertY = new JCheckBox("INVERT Y AXIS", false);
-        cbInvertY.setFont(FONT_SANS_BOLD);
-        cbInvertY.setForeground(COLOR_CHARCOAL);
-        cbInvertY.setBackground(COLOR_BG);
-        cbInvertY.setFocusPainted(false);
+
+        cbInvertY = Theme.checkBox("INVERT Y AXIS", false);
         cbInvertY.addActionListener(e -> updatePlots());
         
         // Phase-sensitive 2D spectra carry negative levels. Shown in red they
         // make the plot read as noise; unchecked, they keep the positive blue so
         // the whole spectrum stays one colour.
-        cbNegativeColor = new JCheckBox("SHOW NEGATIVE LEVELS IN RED", true);
-        cbNegativeColor.setFont(FONT_SANS_BOLD);
-        cbNegativeColor.setForeground(COLOR_CHARCOAL);
-        cbNegativeColor.setBackground(COLOR_BG);
-        cbNegativeColor.setFocusPainted(false);
+        cbNegativeColor = Theme.checkBox("SHOW NEGATIVE LEVELS IN RED", true);
         cbNegativeColor.setToolTipText(
                 "<html>Checked: negative contour levels are drawn in red (dashed).<br>"
                 + "Unchecked: they are drawn in the same blue as positive levels.</html>");
@@ -728,18 +697,18 @@ public class NmrVisualizer extends JFrame {
         // Replot Button - directly under the checkboxes rather than leaving
         // two empty grid rows hanging above it.
         gbc.gridy = 6;
-        gbc.insets = new Insets(10, 4, 2, 4);
+        // Extra air above: this button acts on everything set out above it, so
+        // it reads as a separate step rather than another row of the form.
+        gbc.insets = new Insets(Theme.SPACE_MD, 0, 0, Theme.SPACE_SM);
         JButton btnProcess = createRetroButton("REPLOT SELECTED ATOMS");
         btnProcess.addActionListener(e -> processCurrentData());
         configBox.add(btnProcess, gbc);
 
         sidebar.add(configBox);
-        sidebar.add(Box.createVerticalStrut(10));
-        
+        sidebar.add(Box.createVerticalStrut(Theme.SPACE_LG));
+
         // Log Box
-        JPanel logBox = new JPanel(new BorderLayout());
-        logBox.setBackground(COLOR_BG);
-        logBox.setBorder(createRetroBorder("3. SYSTEM LOGS"));
+        JPanel logBox = Theme.sectionPanel("3. SYSTEM LOGS", new BorderLayout());
         logArea = new JTextArea();
         logArea.setBackground(COLOR_WHITE);
         logArea.setForeground(COLOR_CHARCOAL);
@@ -747,19 +716,77 @@ public class NmrVisualizer extends JFrame {
         logArea.setEditable(false);
         logArea.setLineWrap(true);
         logArea.setCaretColor(COLOR_CHARCOAL);
+        // Both masks are bound explicitly rather than relying on the look and
+        // feel to supply either: on this JDK the Metal text input map ships
+        // neither Cmd+C nor Ctrl+C on macOS, so copy was bound to nothing at
+        // all and the panel behaved as if its text could not be selected.
+        int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        InputMap logKeys = logArea.getInputMap(JComponent.WHEN_FOCUSED);
+        for (int mask : new int[] { menuMask, InputEvent.CTRL_DOWN_MASK }) {
+            logKeys.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, mask),
+                    javax.swing.text.DefaultEditorKit.copyAction);
+            logKeys.put(KeyStroke.getKeyStroke(KeyEvent.VK_A, mask),
+                    javax.swing.text.DefaultEditorKit.selectAllAction);
+        }
+
+        // A right-click menu, because a keyboard shortcut on a panel nobody
+        // thinks to click into is not discoverable. "Copy All" is the one that
+        // matters: the usual reason to want this text is to paste a whole
+        // session's log into a bug report.
+        JPopupMenu logMenu = new JPopupMenu();
+
+        JMenuItem miLogCopy = new JMenuItem("Copy");
+        miLogCopy.setFont(FONT_SANS);
+        miLogCopy.addActionListener(e -> logArea.copy());
+        logMenu.add(miLogCopy);
+
+        JMenuItem miLogCopyAll = new JMenuItem("Copy All");
+        miLogCopyAll.setFont(FONT_SANS);
+        miLogCopyAll.addActionListener(e -> copyTextToClipboard(logArea.getText()));
+        logMenu.add(miLogCopyAll);
+
+        JMenuItem miLogSelectAll = new JMenuItem("Select All");
+        miLogSelectAll.setFont(FONT_SANS);
+        miLogSelectAll.addActionListener(e -> { logArea.requestFocusInWindow(); logArea.selectAll(); });
+        logMenu.add(miLogSelectAll);
+
+        logMenu.addSeparator();
+
+        JMenuItem miLogSave = new JMenuItem("Save Log to File...");
+        miLogSave.setFont(FONT_SANS);
+        miLogSave.addActionListener(e -> saveLogToFile());
+        logMenu.add(miLogSave);
+
+        JMenuItem miLogClear = new JMenuItem("Clear Log");
+        miLogClear.setFont(FONT_SANS);
+        miLogClear.addActionListener(e -> logArea.setText(""));
+        logMenu.add(miLogClear);
+
+        // Enable/disable Copy from whatever the selection is when the menu opens.
+        MouseAdapter logPopup = new MouseAdapter() {
+            private void maybeShow(MouseEvent e) {
+                if (!e.isPopupTrigger()) return;
+                miLogCopy.setEnabled(logArea.getSelectedText() != null);
+                logMenu.show(logArea, e.getX(), e.getY());
+            }
+            public void mousePressed(MouseEvent e)  { maybeShow(e); }
+            public void mouseReleased(MouseEvent e) { maybeShow(e); }
+        };
+        logArea.addMouseListener(logPopup);
+        logArea.setToolTipText("Right-click to copy or save the log");
         
+        // Text sat flush against the outline; give it the same inset every
+        // other bordered control gets.
+        logArea.setBorder(Theme.padding(Theme.SPACE_SM));
         JScrollPane logScroll = new JScrollPane(logArea);
-        logScroll.setBorder(BorderFactory.createLineBorder(COLOR_BLUE_BORDER));
+        logScroll.setBorder(Theme.field());
         logScroll.getViewport().setBackground(COLOR_WHITE);
         logBox.add(logScroll, BorderLayout.CENTER);
         
         // BoxLayout stretches children to their maximum height, which left the import
         // and axis panels over-tall with their contents floating in the middle. Pin
         // those two to their natural height and let the log panel absorb the slack.
-        for (JPanel fixed : new JPanel[] { fileBox, configBox }) {
-            fixed.setAlignmentX(Component.LEFT_ALIGNMENT);
-            fixed.setMaximumSize(new Dimension(Integer.MAX_VALUE, fixed.getPreferredSize().height));
-        }
+        for (JPanel fixed : new JPanel[] { fileBox, configBox }) Theme.pinHeight(fixed);
         logBox.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         sidebar.add(logBox);
@@ -768,14 +795,16 @@ public class NmrVisualizer extends JFrame {
         // Right Side: Plot container
         rightContainer = new JPanel(new BorderLayout());
         rightContainer.setBackground(COLOR_BG);
-        rightContainer.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        rightContainer.setBorder(Theme.padding(Theme.SPACE_MD));
         
         // Zoom Controls Panel
         JPanel tabHeader = new JPanel(new BorderLayout());
         tabHeader.setBackground(COLOR_BG);
 
-        JPanel rightZoomButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-        rightZoomButtons.setBackground(COLOR_BG);
+        JPanel rightZoomButtons = Theme.panel(new FlowLayout(FlowLayout.RIGHT, Theme.SPACE_SM, 0));
+        // The row sat directly on the plot's top edge; separate the control
+        // strip from the canvas it acts on.
+        rightZoomButtons.setBorder(BorderFactory.createEmptyBorder(0, 0, Theme.SPACE_SM, 0));
 
         JButton btnZoomIn = createRetroButton(" [+] Zoom In ");
         JButton btnZoomOut = createRetroButton(" [-] Zoom Out ");
@@ -803,7 +832,7 @@ public class NmrVisualizer extends JFrame {
         plot2D.setTraceRegionListener(this::reportTraceRegion);
         plot2D.setToolTipText("<html>Drag a box to open that region in its own window.<br>"
                 + "Right-drag or shift-drag to pan. Scroll to change the contour level.</html>");
-        plot2D.setBorder(BorderFactory.createLineBorder(COLOR_BLUE_BORDER));
+        plot2D.setBorder(Theme.field());
 
         rightContainer.add(plot2D, BorderLayout.CENTER);
         
@@ -812,58 +841,56 @@ public class NmrVisualizer extends JFrame {
         shortcutPanel.setLayout(new BoxLayout(shortcutPanel, BoxLayout.Y_AXIS));
         shortcutPanel.setBackground(COLOR_BG);
         shortcutPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(0, 1, 0, 0, COLOR_BLUE_BORDER),
-            BorderFactory.createEmptyBorder(5, 5, 5, 5)
-        ));
+            Theme.edge(0, 1, 0, 0), Theme.padding(Theme.SPACE_SM)));
         
         // Title label for shortcuts
         JLabel lblCmd = new JLabel("CMD");
-        lblCmd.setFont(new Font("Arial", Font.BOLD, 10));
-        lblCmd.setForeground(COLOR_CHARCOAL);
+        lblCmd.setFont(Theme.SANS_BOLD.deriveFont(10f));
+        lblCmd.setForeground(Theme.TEXT_MUTED);
         lblCmd.setAlignmentX(Component.CENTER_ALIGNMENT);
         shortcutPanel.add(lblCmd);
-        shortcutPanel.add(Box.createVerticalStrut(8));
+        shortcutPanel.add(Box.createVerticalStrut(Theme.SPACE_SM));
         
         // Shortcut Buttons
         shortcutPanel.add(createShortcutButton("ft", "Fourier Transform (ft)", e -> {
             log("Shortcut: ft (Fourier Transform)");
             processCurrentData();
         }));
-        shortcutPanel.add(Box.createVerticalStrut(5));
+        shortcutPanel.add(Box.createVerticalStrut(Theme.SPACE_XS));
         
         shortcutPanel.add(createShortcutButton("apk", "Auto Phase (apk)", e -> {
             log("Shortcut: apk (Auto Phasing)");
             phc0_f2 = 25.0; phc1_f2 = -40.0;
             processCurrentData();
         }));
-        shortcutPanel.add(Box.createVerticalStrut(5));
+        shortcutPanel.add(Box.createVerticalStrut(Theme.SPACE_XS));
         
         shortcutPanel.add(createShortcutButton("abs", "Auto Baseline (abs)", e -> {
             log("Shortcut: abs (Auto Baseline)");
             baselineOrder = 1;
             processCurrentData();
         }));
-        shortcutPanel.add(Box.createVerticalStrut(5));
+        shortcutPanel.add(Box.createVerticalStrut(Theme.SPACE_XS));
         
         shortcutPanel.add(createShortcutButton("cal", "Calibrate Axis (cal)", e -> showCalibrateDialog()));
-        shortcutPanel.add(Box.createVerticalStrut(5));
+        shortcutPanel.add(Box.createVerticalStrut(Theme.SPACE_XS));
         
         shortcutPanel.add(createShortcutButton(".ph", "Manual Phase (.ph)", e -> showPhaseDialog()));
-        shortcutPanel.add(Box.createVerticalStrut(5));
+        shortcutPanel.add(Box.createVerticalStrut(Theme.SPACE_XS));
         
-        shortcutPanel.add(Box.createVerticalStrut(5));
+        shortcutPanel.add(Box.createVerticalStrut(Theme.SPACE_XS));
         
         shortcutPanel.add(createShortcutButton("*2", "Scale Up Contours (*2)", e -> {
             log("Shortcut: *2 (Contour Scale Up)");
             JOptionPane.showMessageDialog(this, "Increased spectral scaling factor (2x).", "Scale Up", JOptionPane.INFORMATION_MESSAGE);
         }));
-        shortcutPanel.add(Box.createVerticalStrut(5));
+        shortcutPanel.add(Box.createVerticalStrut(Theme.SPACE_XS));
         
         shortcutPanel.add(createShortcutButton("/2", "Scale Down Contours (/2)", e -> {
             log("Shortcut: /2 (Contour Scale Down)");
             JOptionPane.showMessageDialog(this, "Decreased spectral scaling factor (0.5x).", "Scale Down", JOptionPane.INFORMATION_MESSAGE);
         }));
-        shortcutPanel.add(Box.createVerticalStrut(5));
+        shortcutPanel.add(Box.createVerticalStrut(Theme.SPACE_XS));
         
         shortcutPanel.add(createShortcutButton("rst", "Reset Parameters (rst)", e -> {
             log("Shortcut: rst (Reset)");
@@ -880,20 +907,19 @@ public class NmrVisualizer extends JFrame {
         JPanel cmdPromptPanel = new JPanel(new BorderLayout(5, 0));
         cmdPromptPanel.setBackground(COLOR_BG);
         cmdPromptPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(1, 0, 0, 0, COLOR_BLUE_BORDER),
-            BorderFactory.createEmptyBorder(5, 10, 5, 10)
-        ));
+            Theme.edge(1, 0, 0, 0), Theme.padding(Theme.SPACE_SM, Theme.SPACE_MD)));
         
         JLabel lblPrompt = new JLabel("TopSpin CMD: > ");
-        lblPrompt.setFont(new Font("Courier New", Font.BOLD, 12));
-        lblPrompt.setForeground(COLOR_CHARCOAL);
-        
+        lblPrompt.setFont(Theme.MONO.deriveFont(Font.BOLD));
+        lblPrompt.setForeground(Theme.TEXT);
+
         JTextField tfCmdInput = new JTextField();
-        tfCmdInput.setFont(new Font("Courier New", Font.PLAIN, 12));
-        tfCmdInput.setBackground(COLOR_WHITE);
-        tfCmdInput.setForeground(COLOR_CHARCOAL);
-        tfCmdInput.setBorder(BorderFactory.createLineBorder(COLOR_BLUE_BORDER));
-        tfCmdInput.setCaretColor(COLOR_CHARCOAL);
+        tfCmdInput.setFont(Theme.MONO);
+        tfCmdInput.setBackground(Theme.SURFACE);
+        tfCmdInput.setForeground(Theme.TEXT);
+        // Typed text sat against the outline, unlike every other field.
+        tfCmdInput.setBorder(Theme.inputField());
+        tfCmdInput.setCaretColor(Theme.TEXT);
         
         tfCmdInput.addActionListener(e -> {
             String cmd = tfCmdInput.getText().trim();
@@ -908,12 +934,12 @@ public class NmrVisualizer extends JFrame {
         
         // Footer Status Bar
         JPanel footer = new JPanel(new BorderLayout());
-        footer.setBackground(COLOR_BLUE_ACCENT);
-        footer.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, COLOR_BLUE_BORDER));
+        footer.setBackground(Theme.ACCENT);
+        footer.setBorder(Theme.edge(1, 0, 0, 0));
         statusLabel = new JLabel(" STATUS: SYSTEM READY");
-        statusLabel.setFont(FONT_SANS);
-        statusLabel.setForeground(COLOR_CHARCOAL);
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        statusLabel.setFont(Theme.SANS);
+        statusLabel.setForeground(Theme.TEXT);
+        statusLabel.setBorder(Theme.padding(Theme.SPACE_SM, Theme.SPACE_MD));
         footer.add(statusLabel, BorderLayout.WEST);
         
         // South Container holding Command Prompt and Footer
@@ -927,7 +953,7 @@ public class NmrVisualizer extends JFrame {
         add(rightContainer, BorderLayout.CENTER);
         
         log("System initialized successfully.");
-        log("Ready to import files (.str / .csv) or fetch from BMRB Database.");
+        log("Ready to import files (.str / .csv) or a Bruker dataset directory.");
     }
     
     // Map chemical atom names to elements dynamically.
@@ -981,6 +1007,32 @@ public class NmrVisualizer extends JFrame {
     private static final int LOG_TRIM_THRESHOLD = 200_000;
     private static final int LOG_TRIM_TARGET = 150_000;
 
+    /** Put text on the system clipboard, reporting success in the log. */
+    private void copyTextToClipboard(String text) {
+        if (text == null || text.isEmpty()) {
+            setStatus("Nothing to copy");
+            return;
+        }
+        java.awt.datatransfer.StringSelection sel = new java.awt.datatransfer.StringSelection(text);
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, sel);
+        setStatus("Copied " + text.length() + " characters to the clipboard");
+    }
+
+    /** Write the log to a file, for pasting somewhere the clipboard will not reach. */
+    private void saveLogToFile() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setSelectedFile(new File("apsy-log.txt"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File target = chooser.getSelectedFile();
+        try {
+            java.nio.file.Files.write(target.toPath(),
+                    logArea.getText().getBytes(StandardCharsets.UTF_8));
+            log("Log written to " + target.getAbsolutePath());
+        } catch (IOException ex) {
+            log("ERROR: could not write the log: " + ex.getMessage());
+        }
+    }
+
     private void log(String msg) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> log(msg));
@@ -990,13 +1042,45 @@ public class NmrVisualizer extends JFrame {
             System.out.println("> " + msg);
             return;
         }
+        // Mirrored to stdout as well: the app is routinely started from a
+        // terminal, and having the same lines there means a session can be
+        // captured even when the window is gone or the log has been trimmed.
+        System.out.println("> " + msg);
+
+        // Whatever the user has highlighted has to survive this append.
+        // setCaretPosition() below clears the selection, so a line arriving
+        // between the drag and the Cmd+C left them copying nothing at all -
+        // which reads exactly like copy being broken.
+        int selStart = logArea.getSelectionStart();
+        int selEnd = logArea.getSelectionEnd();
+        boolean hadSelection = selEnd > selStart;
+
         logArea.append("> " + msg + "\n");
+
         // A long session otherwise grows this document without bound.
         javax.swing.text.Document doc = logArea.getDocument();
+        int trimmed = 0;
         if (doc.getLength() > LOG_TRIM_THRESHOLD) {
             try {
-                doc.remove(0, doc.getLength() - LOG_TRIM_TARGET);
-            } catch (javax.swing.text.BadLocationException ignored) {}
+                trimmed = doc.getLength() - LOG_TRIM_TARGET;
+                doc.remove(0, trimmed);
+            } catch (javax.swing.text.BadLocationException ignored) {
+                trimmed = 0;
+            }
+        }
+
+        if (hadSelection) {
+            // Trimming shifts every offset down by what it removed; clamp in
+            // case the selection was itself inside the discarded prefix.
+            int length = doc.getLength();
+            int start = Math.max(0, Math.min(selStart - trimmed, length));
+            int end = Math.max(0, Math.min(selEnd - trimmed, length));
+            if (end > start) {
+                // Deliberately no scroll to the bottom either: yanking the view
+                // away mid-selection is the other half of the same annoyance.
+                logArea.select(start, end);
+                return;
+            }
         }
         logArea.setCaretPosition(doc.getLength());
     }
@@ -1088,42 +1172,6 @@ public class NmrVisualizer extends JFrame {
         }
     }
     
-    private void fetchBmrb(String id) {
-        if (id.isEmpty()) {
-            log("ERROR: Enter a valid BMRB Entry ID.");
-            return;
-        }
-        log("Fetching BMRB entry " + id + " from BMRB Web API...");
-        setStatus("Fetching BMRB ID " + id);
-        
-        CompletableFuture.runAsync(() -> {
-            try {
-                URI uri = URI.create("https://api.bmrb.io/v2/entry/" + id + "?format=rawnmrstar");
-                HttpRequest request = HttpRequest.newBuilder().uri(uri).build();
-                HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
-                
-                if (response.statusCode() == 200) {
-                    SwingUtilities.invokeLater(() -> {
-                        currentFileContent = response.body();
-                        currentFileType = "str";
-                        log("SUCCESS: Retrieved BMRB " + id + " (" + currentFileContent.length() + " bytes)");
-                        parseAndLoadData();
-                    });
-                } else {
-                    SwingUtilities.invokeLater(() -> {
-                        log("ERROR: BMRB API returned code " + response.statusCode());
-                        setStatus("Fetch failed (Code " + response.statusCode() + ")");
-                    });
-                }
-            } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> {
-                    log("ERROR: Failed to fetch: " + ex.getMessage());
-                    setStatus("Fetch failed");
-                });
-            }
-        });
-    }
-
     // A long-lived `nmr_backend.py serve` process. Keeping it alive avoids paying
     // ~0.5s of Python imports per request and lets the backend cache the processed
     // matrix, so a contour-only recompute costs ~0.3s instead of ~1.05s.
@@ -1230,8 +1278,40 @@ public class NmrVisualizer extends JFrame {
     // fills up can deadlock the subprocess. No Swing calls here, so this is safe
     // to run on any thread.
     private static String pythonExecutable() {
-        File venvPy = new File(venvDirectory(), ".venv/bin/python");
-        return venvPy.exists() ? venvPy.getAbsolutePath() : "python3";
+        File venvPy = findVenvPython();
+        return venvPy != null ? venvPy.getAbsolutePath() : "python3";
+    }
+
+    /**
+     * Locate the bundled interpreter, searching upward from every plausible root.
+     *
+     * The packaged .app puts .venv directly in the resource directory, so an
+     * exact-match lookup is enough there. A source checkout is not so tidy: it
+     * is launched from whatever working directory an IDE or a shell happened to
+     * pick, and when the exact match misses, the fallback to PATH python3 finds
+     * an interpreter with none of the scientific stack. That failure surfaces
+     * much later and much less helpfully, as "No module named 'contourpy'"
+     * coming back from the backend, rather than as the missing venv it is.
+     *
+     * The climb is capped: a stray .venv several levels above a checkout is far
+     * more likely to be some unrelated project's than the one meant here.
+     */
+    private static final int VENV_SEARCH_DEPTH = 4;
+
+    private static File findVenvPython() {
+        File[] roots = {
+            venvDirectory(),
+            resourceDirectory(),
+            new File(System.getProperty("user.dir", "."))
+        };
+        for (File root : roots) {
+            File dir = root;
+            for (int up = 0; dir != null && up <= VENV_SEARCH_DEPTH; up++, dir = dir.getParentFile()) {
+                File candidate = new File(dir, ".venv/bin/python");
+                if (candidate.isFile()) return candidate;
+            }
+        }
+        return null;
     }
 
     private static File resourceDirectory() {
@@ -1583,7 +1663,12 @@ public class NmrVisualizer extends JFrame {
             return;
         }
         if (loadInFlight) {
+            // Silence here reads as "the button did nothing": the load is
+            // queued, but nothing said so, and the previous load's own result
+            // is still seconds away.
             loadPending = true;
+            log("A load is already running - queued this one behind it.");
+            setStatus("Queued behind the running load");
             return;
         }
 
@@ -2841,38 +2926,12 @@ public class NmrVisualizer extends JFrame {
     
     // Border Helper (2007 Light Theme Styled)
     public static Border createRetroBorder(String title) {
-        Border line = BorderFactory.createLineBorder(COLOR_BLUE_BORDER);
-        Border titled = BorderFactory.createTitledBorder(line, " " + title + " ",
-            TitledBorder.LEFT, TitledBorder.TOP,
-            FONT_SANS_BOLD, COLOR_CHARCOAL);
-        // Keeps panel contents off the frame instead of sitting flush against it.
-        return BorderFactory.createCompoundBorder(titled,
-            BorderFactory.createEmptyBorder(6, 8, 8, 8));
+        return Theme.section(title);
     }
     
     // Button Helper (2007 Light Theme Styled)
     public static JButton createRetroButton(String label) {
-        JButton btn = new JButton(label);
-        btn.setFont(FONT_SANS_BOLD);
-        btn.setBackground(new Color(235, 238, 242));
-        btn.setForeground(COLOR_CHARCOAL);
-        btn.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(COLOR_BLUE_BORDER),
-            BorderFactory.createEmptyBorder(5, 10, 5, 10)
-        ));
-        btn.setFocusPainted(false);
-        btn.setContentAreaFilled(false);
-        btn.setOpaque(true);
-        
-        btn.addMouseListener(new MouseAdapter() {
-            public void mouseEntered(MouseEvent evt) {
-                btn.setBackground(COLOR_BLUE_ACCENT);
-            }
-            public void mouseExited(MouseEvent evt) {
-                btn.setBackground(new Color(235, 238, 242));
-            }
-        });
-        return btn;
+        return Theme.button(label);
     }
     
     private JComboBox<String> createRetroComboBox() {
