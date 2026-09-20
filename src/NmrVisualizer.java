@@ -86,15 +86,19 @@ public class NmrVisualizer extends JFrame {
     private boolean showGridLines = false;
     
     // UI Elements
-    private JComboBox<String> comboX;
-    private JComboBox<String> comboY;
-    private JComboBox<String> comboZ;
+
     private JCheckBox cbInvertX;
     private JCheckBox cbInvertY;
     private JCheckBox cbNegativeColor;
     private JTextArea logArea;
     private JLabel statusLabel;
+    private JButton btnRecent;
     private JPanel rightContainer;
+    // Holds the plot and, under it, the line naming the gestures that spectrum
+    // responds to. 1D and 2D answer to different ones and nothing else in the
+    // UI mentions either.
+    private JPanel plotArea;
+    private JLabel gestureHint;
     private JFrame detachedPlotFrame;
     // Region windows opened off a drag-selection. Held so a contour threshold
     // change can be pushed into them too - otherwise they would keep showing
@@ -163,8 +167,8 @@ public class NmrVisualizer extends JFrame {
         procMenu.addSeparator();
         procMenu.add(createLogMenuItem("<html>Window M<u>u</u>ltiplication (wm)</html>", "Applying window multiplication (wm)..."));
         
-        JMenuItem miFT = createLogMenuItem("<html>Fourier <u>T</u>ransform (ft)</html>", "Running Fourier Transform (ft)...");
-        miFT.addActionListener(e -> processCurrentData());
+        JMenuItem miFT = createActionMenuItem("<html>Fourier <u>T</u>ransform (ft)</html>",
+                "Running Fourier Transform (ft)...", e -> processCurrentData());
         procMenu.add(miFT);
         
         procMenu.add(createLogMenuItem("<html><u>F</u>ourier Transform Options ... (ftf)</html>", "Fourier Transform options (ftf)..."));
@@ -176,12 +180,12 @@ public class NmrVisualizer extends JFrame {
         
         // 2. Adjust Phase Dropdown Menu
         JPopupMenu phaseMenu = new JPopupMenu();
-        JMenuItem miPhaseManual = createLogMenuItem("<html>Adjust Spectrum Phase manually (.ph)</html>", "Manual phase correction selected.");
-        miPhaseManual.addActionListener(e -> showPhaseDialog());
+        JMenuItem miPhaseManual = createActionMenuItem("<html>Adjust Spectrum Phase manually (.ph)</html>",
+                "Manual phase correction selected.", e -> showPhaseDialog());
         phaseMenu.add(miPhaseManual);
         
-        JMenuItem miPhasePHC = createLogMenuItem("<html>Phase Spectrum Using PHC0/PHC1 (pk)</html>", "Phasing using current PHC0/PHC1 parameters.");
-        miPhasePHC.addActionListener(e -> showPhaseDialog());
+        JMenuItem miPhasePHC = createActionMenuItem("<html>Phase Spectrum Using PHC0/PHC1 (pk)</html>",
+                "Phasing using current PHC0/PHC1 parameters.", e -> showPhaseDialog());
         phaseMenu.add(miPhasePHC);
         
         phaseMenu.addSeparator();
@@ -215,8 +219,8 @@ public class NmrVisualizer extends JFrame {
         
         // 4. Calib. Axis Dropdown Menu
         JPopupMenu calibMenu = new JPopupMenu();
-        JMenuItem miCalibManual = createLogMenuItem("<html>Manual Axis Calibration (.cal)</html>", "Manual calibration (.cal)...");
-        miCalibManual.addActionListener(e -> showCalibrateDialog());
+        JMenuItem miCalibManual = createActionMenuItem("<html>Manual Axis Calibration (.cal)</html>",
+                "Manual calibration (.cal)...", e -> showCalibrateDialog());
         calibMenu.add(miCalibManual);
         calibMenu.addSeparator();
         calibMenu.add(createLogMenuItem("<html>Set TMS To 0 ppm (sref)<br><font size=\"2\" color=\"#666666\"><i>Requires edlock setup!</i></font></html>", "Setting TMS reference to 0 ppm (sref)..."));
@@ -297,12 +301,12 @@ public class NmrVisualizer extends JFrame {
         btnQuantify.addActionListener(e -> quantifyMenu.show(btnQuantify, 0, quantifyMenu.getHeight()));
 
         JPopupMenu sinoMenu = new JPopupMenu();
-        JMenuItem miSino = createLogMenuItem("Calculate Signal-to-Noise (sino)", "Calculating Signal-to-Noise ratio (sino)...");
-        miSino.addActionListener(e -> {
-            log("Signal-to-Noise Ratio (S/N) calculated: 145.8");
-            JOptionPane.showMessageDialog(this, "Signal-to-Noise Ratio (S/N): 145.8\nNoise standard deviation (std): 0.0124", "Signal-to-Noise Ratio", JOptionPane.INFORMATION_MESSAGE);
-        });
-        sinoMenu.add(miSino);
+        // Reported a fixed "S/N: 145.8" and "std: 0.0124" whatever was loaded,
+        // which is worse than doing nothing: a fabricated number that looks
+        // measured is one somebody could write down. Disabled until it computes
+        // the ratio from the spectrum.
+        sinoMenu.add(createLogMenuItem("Calculate Signal-to-Noise (sino)",
+                "Calculating Signal-to-Noise ratio (sino)..."));
         sinoMenu.add(createLogMenuItem("Noise Region Selection", "Selecting noise calculation regions..."));
         btnSiNo.addActionListener(e -> sinoMenu.show(btnSiNo, 0, btnSiNo.getHeight()));
 
@@ -365,8 +369,8 @@ public class NmrVisualizer extends JFrame {
         btnHamburger.setToolTipText("Main Menu");
         
         JPopupMenu hamburgerMenu = new JPopupMenu();
-        JMenuItem miOpenDataset = createLogMenuItem("Open Dataset... (Ctrl+O)", "Opening dataset select dialog...");
-        miOpenDataset.addActionListener(e -> chooseLocalFile());
+        JMenuItem miOpenDataset = createActionMenuItem("Open Dataset... (Ctrl+O)",
+                "Opening dataset select dialog...", e -> chooseLocalFile());
         hamburgerMenu.add(miOpenDataset);
         hamburgerMenu.add(createLogMenuItem("Save Dataset (Ctrl+S)", "Saving dataset..."));
         hamburgerMenu.addSeparator();
@@ -413,8 +417,8 @@ public class NmrVisualizer extends JFrame {
         miSim1D.setFont(FONT_SANS);
         miSim1D.addActionListener(e -> simulate1D());
         simulateMenu.add(miSim1D);
-        JMenuItem miSim2D = createLogMenuItem("Simulate 2D Correlation Map", "Simulating 2D correlation map...");
-        miSim2D.addActionListener(e -> runBruker2DPlotter());
+        JMenuItem miSim2D = createActionMenuItem("Simulate 2D Correlation Map",
+                "Simulating 2D correlation map...", e -> runBruker2DPlotter());
         simulateMenu.add(miSim2D);
         simulateMenu.addSeparator();
         simulateMenu.add(createLogMenuItem("Export Simulation Parameters", "Simulation parameters exported."));
@@ -626,9 +630,23 @@ public class NmrVisualizer extends JFrame {
         // One row for one button. GridLayout(2, 1) kept reserving a second row
         // after the BMRB fetch control was removed, which is what left an empty
         // band under the load button.
-        JPanel fileBox = Theme.sectionPanel("1. DATA IMPORT", new GridLayout(1, 1));
+        JPanel fileBox = Theme.sectionPanel("1. DATA IMPORT",
+                new GridLayout(3, 1, 0, Theme.SPACE_SM));
 
-        JButton btnLoadLocal = createRetroButton("LOAD LOCAL FILE (.str / .csv)");
+        // Browsing comes first: it is the one that does not require knowing
+        // where in the tree the data actually sits.
+        JButton btnBrowse = createRetroButton("BROWSE DATASETS...");
+        btnBrowse.setToolTipText("Search a folder for every spectrum underneath it");
+        btnBrowse.addActionListener(e -> showDatasetBrowser());
+        fileBox.add(btnBrowse);
+
+        btnRecent = createRetroButton("RECENT DATASETS \u25be");
+        btnRecent.setToolTipText("Datasets opened earlier, most recent first");
+        btnRecent.addActionListener(e -> showRecentMenu(btnRecent));
+        fileBox.add(btnRecent);
+
+        JButton btnLoadLocal = createRetroButton("OPEN FILE OR FOLDER...");
+        btnLoadLocal.setToolTipText("A .str / .csv file, or anything inside a Bruker dataset");
         btnLoadLocal.addActionListener(e -> chooseLocalFile());
         fileBox.add(btnLoadLocal);
 
@@ -642,16 +660,6 @@ public class NmrVisualizer extends JFrame {
         // Roomier vertically than horizontally: rows need separating, a label
         // and its field belong together.
         gbc.insets = new Insets(Theme.SPACE_XS, 0, Theme.SPACE_XS, Theme.SPACE_SM);
-        
-        // Dropdowns
-        comboX = createRetroComboBox();
-        comboY = createRetroComboBox();
-        comboZ = createRetroComboBox();
-        
-        // Populate defaults
-        comboX.addItem("H");
-        comboY.addItem("N");
-        comboZ.addItem("CA");
         
         cbInvertX = Theme.checkBox("INVERT X AXIS", true);
         cbInvertX.addActionListener(e -> updatePlots());
@@ -671,38 +679,15 @@ public class NmrVisualizer extends JFrame {
             for (NmrPlot2D rv : regionViews) rv.setShowNegativeColor(cbNegativeColor.isSelected());
         });
 
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.3;
-        configBox.add(new JLabel(" X axis: ") {{ setFont(FONT_SANS); setForeground(COLOR_CHARCOAL); }}, gbc);
-        gbc.gridx = 1; gbc.weightx = 0.7;
-        configBox.add(comboX, gbc);
-        
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0.3;
-        configBox.add(new JLabel(" Y axis: ") {{ setFont(FONT_SANS); setForeground(COLOR_CHARCOAL); }}, gbc);
-        gbc.gridx = 1; gbc.weightx = 0.7;
-        configBox.add(comboY, gbc);
-        
-        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0.3;
-        configBox.add(new JLabel(" Z axis: ") {{ setFont(FONT_SANS); setForeground(COLOR_CHARCOAL); }}, gbc);
-        gbc.gridx = 1; gbc.weightx = 0.7;
-        configBox.add(comboZ, gbc);
-        
-        // Invert check
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2;
+        // The axes are read from the file now, so there is nothing to choose:
+        // a Bruker/JEOL/JCAMP dataset names its own, and a shift list is paired
+        // from the atoms it contains.
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2;
         configBox.add(cbInvertX, gbc);
         gbc.gridy = 4;
         configBox.add(cbInvertY, gbc);
         gbc.gridy = 5;
         configBox.add(cbNegativeColor, gbc);
-
-        // Replot Button - directly under the checkboxes rather than leaving
-        // two empty grid rows hanging above it.
-        gbc.gridy = 6;
-        // Extra air above: this button acts on everything set out above it, so
-        // it reads as a separate step rather than another row of the form.
-        gbc.insets = new Insets(Theme.SPACE_MD, 0, 0, Theme.SPACE_SM);
-        JButton btnProcess = createRetroButton("REPLOT SELECTED ATOMS");
-        btnProcess.addActionListener(e -> processCurrentData());
-        configBox.add(btnProcess, gbc);
 
         sidebar.add(configBox);
         sidebar.add(Box.createVerticalStrut(Theme.SPACE_LG));
@@ -830,11 +815,22 @@ public class NmrVisualizer extends JFrame {
         plot2D.setIntensityScaleListener(this::showIntensityScale);
         plot2D.setRegionSelectListener(this::openRegionWindow);
         plot2D.setTraceRegionListener(this::reportTraceRegion);
-        plot2D.setToolTipText("<html>Drag a box to open that region in its own window.<br>"
-                + "Right-drag or shift-drag to pan. Scroll to change the contour level.</html>");
         plot2D.setBorder(Theme.field());
 
-        rightContainer.add(plot2D, BorderLayout.CENTER);
+        gestureHint = new JLabel(" ");
+        gestureHint.setFont(Theme.SANS);
+        gestureHint.setForeground(Theme.TEXT_MUTED);
+        gestureHint.setBorder(BorderFactory.createEmptyBorder(Theme.SPACE_SM, Theme.SPACE_XS, 0, 0));
+
+        plotArea = Theme.panel(new BorderLayout());
+        plotArea.add(plot2D, BorderLayout.CENTER);
+        plotArea.add(gestureHint, BorderLayout.SOUTH);
+        rightContainer.add(plotArea, BorderLayout.CENTER);
+
+        // The old tooltip described 2D only, and every clause of it became wrong
+        // for 1D once drag-zoom and the intensity wheel went in. Both the
+        // tooltip and the hint line are written here so they cannot disagree.
+        updateGestureHints();
         
         // Far right vertical console command shortcut bar
         JPanel shortcutPanel = new JPanel();
@@ -953,7 +949,7 @@ public class NmrVisualizer extends JFrame {
         add(rightContainer, BorderLayout.CENTER);
         
         log("System initialized successfully.");
-        log("Ready to import files (.str / .csv) or a Bruker dataset directory.");
+        log("Ready. Browse Datasets lists every spectrum under a folder.");
     }
     
     // Map chemical atom names to elements dynamically.
@@ -1134,15 +1130,95 @@ public class NmrVisualizer extends JFrame {
         return null;
     }
 
+    /** Open the browser, and load whatever it hands back. */
+    private void showDatasetBrowser() {
+        File start = DatasetLocator.lastBrowseDirectory(new File(System.getProperty("user.dir")));
+        new DatasetBrowser(this, start, this::loadDataset).setVisible(true);
+    }
+
+    /**
+     * The recently opened datasets, newest first.
+     *
+     * Built fresh on every click rather than kept in sync: the list is short,
+     * and rebuilding means a dataset deleted since it was last opened simply
+     * stops appearing instead of failing when picked.
+     */
+    private void showRecentMenu(JComponent anchor) {
+        JPopupMenu menu = new JPopupMenu();
+        List<String> recents = DatasetLocator.recents();
+
+        if (recents.isEmpty()) {
+            JMenuItem empty = new JMenuItem("No datasets opened yet");
+            empty.setFont(FONT_SANS);
+            empty.setEnabled(false);
+            menu.add(empty);
+        } else {
+            for (String path : recents) {
+                File dir = new File(path);
+                // Labelled the way the browser lists them - "METABOLITE/158 (2D)"
+                // - because "1" is what the directory is actually called.
+                DatasetLocator.Entry entry = DatasetLocator.describeOne(dir);
+                String label = entry != null ? entry.toString() : dir.getName();
+                JMenuItem item = new JMenuItem(label);
+                item.setFont(FONT_SANS);
+                item.setToolTipText(path);
+                item.addActionListener(e -> loadDataset(dir));
+                menu.add(item);
+            }
+            menu.addSeparator();
+            JMenuItem clear = new JMenuItem("Clear List");
+            clear.setFont(FONT_SANS);
+            clear.addActionListener(e -> {
+                DatasetLocator.clearRecents();
+                log("Recent dataset list cleared.");
+            });
+            menu.add(clear);
+        }
+        menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** Load a dataset directory, from wherever it was chosen. */
+    private void loadDataset(File dir) {
+        if (dir == null || !dir.exists()) {
+            log("ERROR: that dataset is no longer on disk.");
+            return;
+        }
+        String path = dir.getAbsolutePath();
+        log("Loading Bruker NMR directory: " + path);
+        setStatus("Loading " + dir.getName());
+        currentFileType = "bruker";
+        currentFileContent = path;
+        DatasetLocator.addRecent(path);
+        parseAndLoadData();
+    }
+
     private void chooseLocalFile() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setCurrentDirectory(new File(System.getProperty("user.dir")));
+        chooser.setCurrentDirectory(DatasetLocator.lastBrowseDirectory(
+                new File(System.getProperty("user.dir"))));
         chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+        // Selecting a directory is an unusual thing for a file dialog to want,
+        // and the plain chooser gives no sign that it is allowed here.
+        chooser.setDialogTitle("Open a .str / .csv file, or a Bruker dataset folder");
+        chooser.setApproveButtonText("Open");
+        chooser.setApproveButtonToolTipText(
+                "A Bruker dataset is the folder containing pdata, not a single file");
         int returnVal = chooser.showOpenDialog(this);
         if (returnVal == JFileChooser.APPROVE_OPTION) {
             File file = chooser.getSelectedFile();
-            String brukerRoot = getBrukerRootPath(file);
-            
+            DatasetLocator.setLastBrowseDirectory(
+                    file.isDirectory() ? file : file.getParentFile());
+
+            // Accept anything inside a dataset - the 2rr itself, the pdata
+            // folder, the experiment folder, or the dataset name - and work out
+            // the directory the backend wants. getBrukerRootPath() only
+            // recognised exact hits, so a click one level off silently fell
+            // through to being read as a text file.
+            File resolved = DatasetLocator.resolve(file);
+            String brukerRoot = resolved != null
+                    ? resolved.getAbsolutePath()
+                    : getBrukerRootPath(file);
+
             if (brukerRoot != null) {
                 log("Loading Bruker NMR directory: " + brukerRoot);
                 setStatus("Loading Bruker " + new File(brukerRoot).getName());
@@ -1523,6 +1599,37 @@ public class NmrVisualizer extends JFrame {
         plot2D.repaint();
     }
 
+    /**
+     * Name the gestures the loaded spectrum actually responds to.
+     *
+     * 1D and 2D answer to different ones - a 1D drag zooms the ppm axis in
+     * place, a 2D drag opens the boxed region in its own window - so a single
+     * fixed string is wrong for one of them whatever it says.
+     */
+    private void updateGestureHints() {
+        String hint;
+        String tip;
+        if (tracePoints.length == 0 && dataPoints.isEmpty() && contourLines.isEmpty()) {
+            hint = "Load a spectrum to plot it, or Applications \u25b8 Simulate 1D Spin System for a demo.";
+            tip = null;
+        } else if (loadedDimension == 1) {
+            hint = "Drag \u2192 zoom to that ppm range   \u00b7   Double-click \u2192 whole spectrum"
+                 + "   \u00b7   Scroll \u2192 peak height   \u00b7   Right-drag \u2192 pan";
+            tip = "<html>Drag across the spectrum to zoom into that ppm range,"
+                + " and peaks are re-picked inside it.<br>"
+                + "Double-click returns to the whole spectrum."
+                + " Scroll to raise or lower the peaks (x0.5 to x100).<br>"
+                + "Right-drag or shift-drag to pan along the ppm axis.</html>";
+        } else {
+            hint = "Drag \u2192 open that region in a window   \u00b7   Scroll \u2192 contour level"
+                 + "   \u00b7   Right-drag \u2192 pan";
+            tip = "<html>Drag a box to open that region in its own window.<br>"
+                + "Right-drag or shift-drag to pan. Scroll to change the contour level.</html>";
+        }
+        if (gestureHint != null) gestureHint.setText(hint);
+        if (plot2D != null) plot2D.setToolTipText(tip);
+    }
+
     /** Status line after a 1D region zoom or reset. */
     private void reportTraceRegion() {
         double[] range = plot2D.viewPpmRange();
@@ -1612,38 +1719,6 @@ public class NmrVisualizer extends JFrame {
         uniqueAtoms = parsed.atoms;
 
         // Update dropdowns without triggering event handlers
-        ActionListener[] xListeners = comboX.getActionListeners();
-        ActionListener[] yListeners = comboY.getActionListeners();
-        ActionListener[] zListeners = comboZ.getActionListeners();
-
-        for (ActionListener al : xListeners) comboX.removeActionListener(al);
-        for (ActionListener al : yListeners) comboY.removeActionListener(al);
-        for (ActionListener al : zListeners) comboZ.removeActionListener(al);
-
-        comboX.removeAllItems();
-        comboY.removeAllItems();
-        comboZ.removeAllItems();
-
-        for (String a : uniqueAtoms) {
-            comboX.addItem(a);
-            comboY.addItem(a);
-            comboZ.addItem(a);
-        }
-
-        // Restore selections
-        if (uniqueAtoms.contains(x)) comboX.setSelectedItem(x);
-        else if (!uniqueAtoms.isEmpty()) comboX.setSelectedIndex(0);
-
-        if (uniqueAtoms.contains(y)) comboY.setSelectedItem(y);
-        else if (uniqueAtoms.size() > 1) comboY.setSelectedIndex(1);
-
-        if (uniqueAtoms.contains(z)) comboZ.setSelectedItem(z);
-        else if (uniqueAtoms.size() > 2) comboZ.setSelectedIndex(2);
-
-        for (ActionListener al : xListeners) comboX.addActionListener(al);
-        for (ActionListener al : yListeners) comboY.addActionListener(al);
-        for (ActionListener al : zListeners) comboZ.addActionListener(al);
-
         log("SUCCESS: Loaded " + dataPoints.size() + " paired residue points.");
         log("Atoms available: " + uniqueAtoms);
         setStatus("Loaded " + dataPoints.size() + " points");
@@ -1674,9 +1749,9 @@ public class NmrVisualizer extends JFrame {
 
         setStatus("Parsing data via Python backend...");
 
-        String x = (String) comboX.getSelectedItem();
-        String y = (String) comboY.getSelectedItem();
-        String z = (String) comboZ.getSelectedItem();
+        String x = axisAtom(0);
+        String y = axisAtom(1);
+        String z = axisAtom(2);
         if (x == null) x = "H";
         if (y == null) y = "N";
         if (z == null) z = "CA";
@@ -1945,8 +2020,8 @@ public class NmrVisualizer extends JFrame {
             // Snap to the nearest precomputed rung for instant feedback...
             if (selectLadderWindow()) {
                 plot2D.setData(dataPoints, contourLines,
-                        (String) comboX.getSelectedItem(), (String) comboY.getSelectedItem(),
-                        (String) comboZ.getSelectedItem(), cbInvertX.isSelected(), cbInvertY.isSelected());
+                        axisAtom(0), axisAtom(1),
+                        axisAtom(2), cbInvertX.isSelected(), cbInvertY.isSelected());
                 plot2D.repaint();
                 refreshRegionViews();
             }
@@ -1975,9 +2050,9 @@ public class NmrVisualizer extends JFrame {
             return;
         }
 
-        String x = (String) comboX.getSelectedItem();
-        String y = (String) comboY.getSelectedItem();
-        String z = (String) comboZ.getSelectedItem();
+        String x = axisAtom(0);
+        String y = axisAtom(1);
+        String z = axisAtom(2);
         if (x == null) x = "H";
         if (y == null) y = "N";
         if (z == null) z = "CA";
@@ -2008,10 +2083,27 @@ public class NmrVisualizer extends JFrame {
         }, "contour-recompute").start();
     }
 
+    // Axes when a file does not name its own: an NMR-STAR or CSV shift list is
+    // a flat table of atoms, so something has to choose which three to pair.
+    private static final String[] AXIS_FALLBACK = { "H", "N", "CA" };
+
+    /**
+     * The atom plotted on one axis, taken from the file instead of a dropdown.
+     *
+     * A Bruker, JEOL or JCAMP dataset names its own axes and the backend
+     * ignores anything it is told about them, so this only bites for shift
+     * lists - and there the first atoms in the file are used, which is exactly
+     * what the dropdowns defaulted to: nothing ever preselected anything else.
+     */
+    private String axisAtom(int index) {
+        if (index < uniqueAtoms.size()) return uniqueAtoms.get(index);
+        return AXIS_FALLBACK[Math.min(index, AXIS_FALLBACK.length - 1)];
+    }
+
     private void updatePlots() {
-        String x = (String) comboX.getSelectedItem();
-        String y = (String) comboY.getSelectedItem();
-        String z = (String) comboZ.getSelectedItem();
+        String x = axisAtom(0);
+        String y = axisAtom(1);
+        String z = axisAtom(2);
         
         plot2D.setBrukerMode("bruker".equals(currentFileType));
         plot2D.setTrace(tracePoints, loadedDimension);
@@ -2020,6 +2112,7 @@ public class NmrVisualizer extends JFrame {
         // hit-test aligned with what is actually drawn.
         boolean invY = loadedDimension == 1 ? true : cbInvertY.isSelected();
         plot2D.setData(dataPoints, contourLines, x, y, z, cbInvertX.isSelected(), invY);
+        updateGestureHints();
         refreshRegionViews();
     }
 
@@ -2206,17 +2299,21 @@ public class NmrVisualizer extends JFrame {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
         panel.setBackground(background);
 
-        JButton print = createToolbarIconButton(new VectorIcon("printer", 16, 16), "Print Spectrum");
-        print.addActionListener(e -> JOptionPane.showMessageDialog(this,
-                "Sending spectrum to printer spooler...", "Print", JOptionPane.INFORMATION_MESSAGE));
+        // All three announced success from a dialog - "Copied plot image to
+        // clipboard." - without printing, exporting or copying anything. A
+        // confirmation for work that did not happen is the most misleading
+        // thing in the UI, so they are disabled rather than left to claim it.
+        JButton print = createToolbarIconButton(new VectorIcon("printer", 16, 16),
+                "Print Spectrum - " + NOT_IMPLEMENTED_HINT);
+        print.setEnabled(false);
 
-        JButton export = createToolbarIconButton(new VectorIcon("export", 16, 16), "Export / Save Data");
-        export.addActionListener(e -> JOptionPane.showMessageDialog(this,
-                "Exporting processed data...", "Export", JOptionPane.INFORMATION_MESSAGE));
+        JButton export = createToolbarIconButton(new VectorIcon("export", 16, 16),
+                "Export / Save Data - " + NOT_IMPLEMENTED_HINT);
+        export.setEnabled(false);
 
-        JButton copy = createToolbarIconButton(new VectorIcon("copy", 16, 16), "Copy to Clipboard");
-        copy.addActionListener(e -> JOptionPane.showMessageDialog(this,
-                "Copied plot image to clipboard.", "Copy", JOptionPane.INFORMATION_MESSAGE));
+        JButton copy = createToolbarIconButton(new VectorIcon("copy", 16, 16),
+                "Copy to Clipboard - " + NOT_IMPLEMENTED_HINT);
+        copy.setEnabled(false);
 
         JButton layout = createToolbarIconButton(new VectorIcon("layout1", 16, 16), "Single Panel Tabbed Layout");
         layout.addActionListener(e -> setViewportLayout(1));
@@ -2230,10 +2327,38 @@ public class NmrVisualizer extends JFrame {
     }
 
     // TopSpin Toolbar Helpers
+    // Shown on every command this build does not carry out.
+    private static final String NOT_IMPLEMENTED_HINT =
+        "Listed for reference - not implemented in this build";
+
+    /**
+     * A menu entry for a TopSpin command this build does not implement.
+     *
+     * These used to be live items whose whole behaviour was writing a
+     * plausible line to the log - "Running automatic multiplet analysis..." -
+     * and nothing else, which is indistinguishable from the command having
+     * worked. Disabled, they still document the command map TopSpin users
+     * expect, without claiming the command is available here.
+     *
+     * `logMsg` is kept in the signature so the call sites still read as a
+     * record of what each command would say once implemented.
+     */
     private JMenuItem createLogMenuItem(String text, String logMsg) {
         JMenuItem mi = new JMenuItem(text);
         mi.setFont(FONT_SANS);
-        mi.addActionListener(e -> log(logMsg));
+        mi.setEnabled(false);
+        mi.setToolTipText(NOT_IMPLEMENTED_HINT);
+        return mi;
+    }
+
+    /** A menu entry that does something: logs `logMsg`, then runs `action`. */
+    private JMenuItem createActionMenuItem(String text, String logMsg, ActionListener action) {
+        JMenuItem mi = new JMenuItem(text);
+        mi.setFont(FONT_SANS);
+        mi.addActionListener(e -> {
+            if (logMsg != null && !logMsg.isEmpty()) log(logMsg);
+            action.actionPerformed(e);
+        });
         return mi;
     }
     
@@ -2589,8 +2714,8 @@ public class NmrVisualizer extends JFrame {
 
         String title = String.format(Locale.US,
                 "Region  %s %.3f - %.3f ppm   x   %s %.3f - %.3f ppm",
-                (String) comboX.getSelectedItem(), region[0], region[1],
-                (String) comboY.getSelectedItem(), region[2], region[3]);
+                axisAtom(0), region[0], region[1],
+                axisAtom(1), region[2], region[3]);
 
         JFrame frame = new JFrame(title);
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
@@ -2627,8 +2752,8 @@ public class NmrVisualizer extends JFrame {
         frame.setVisible(true);
 
         log(String.format(Locale.US, "Region opened: %s %.3f-%.3f, %s %.3f-%.3f ppm",
-                (String) comboX.getSelectedItem(), region[0], region[1],
-                (String) comboY.getSelectedItem(), region[2], region[3]));
+                axisAtom(0), region[0], region[1],
+                axisAtom(1), region[2], region[3]));
         setStatus("Region window opened");
     }
 
@@ -2697,7 +2822,10 @@ public class NmrVisualizer extends JFrame {
         closing.dispose();
 
         rightContainer.remove(detachedPlaceholder);
-        rightContainer.add(plot2D, BorderLayout.CENTER);
+        // Back into its wrapper, not straight into rightContainer: otherwise the
+        // hint line is left behind in the detached frame's old parent.
+        plotArea.add(plot2D, BorderLayout.CENTER);
+        rightContainer.add(plotArea, BorderLayout.CENTER);
         rightContainer.revalidate();
         rightContainer.repaint();
 
@@ -2934,27 +3062,6 @@ public class NmrVisualizer extends JFrame {
         return Theme.button(label);
     }
     
-    private JComboBox<String> createRetroComboBox() {
-        JComboBox<String> combo = new JComboBox<>();
-        combo.setBackground(COLOR_WHITE);
-        combo.setForeground(COLOR_CHARCOAL);
-        combo.setFont(FONT_SANS_BOLD);
-        combo.setBorder(BorderFactory.createLineBorder(COLOR_BLUE_BORDER));
-        combo.setOpaque(true);
-        // Match the button height so the axis rows line up instead of looking chunky.
-        combo.setPreferredSize(new Dimension(0, 26));
-        combo.setRenderer(new DefaultListCellRenderer() {
-            public Component getListCellRendererComponent(JList<?> list, Object val, int idx, boolean isSel, boolean cellHasFocus) {
-                JLabel lbl = (JLabel) super.getListCellRendererComponent(list, val, idx, isSel, cellHasFocus);
-                lbl.setBackground(isSel ? COLOR_BLUE_ACCENT : COLOR_WHITE);
-                lbl.setForeground(COLOR_CHARCOAL);
-                lbl.setFont(FONT_SANS_BOLD);
-                lbl.setOpaque(true);
-                return lbl;
-            }
-        });
-        return combo;
-    }
 
     // 2D Custom Plot Panel (White background with dynamic viewport zoom/pan bounds & multi-param element tooltips)
     public static class NmrPlot2D extends JPanel {
@@ -4190,9 +4297,30 @@ public class NmrVisualizer extends JFrame {
             g2.drawRect(marginLeft, marginTop, plotWidth, plotHeight);
             
             if (points.isEmpty() && contourLines.isEmpty() && trace.length == 0) {
-                g2.setColor(COLOR_CHARCOAL);
-                g2.setFont(FONT_SANS);
-                g2.drawString("NO DATA LOADED", width / 2 - 50, height / 2);
+                // "NO DATA LOADED" alone left the two non-obvious things unsaid:
+                // where loading starts, and that a Bruker dataset is a folder
+                // rather than a file - which no file dialog hints at.
+                String[] lines = {
+                    "No spectrum loaded",
+                    "",
+                    "Click BROWSE DATASETS to list every spectrum in a folder,",
+                    "or OPEN FILE OR FOLDER for a .str / .csv file.",
+                    "",
+                    "No data to hand? Applications \u25b8 Simulate 1D Spin System",
+                    "plots a worked example.",
+                };
+                int lineHeight = g2.getFontMetrics(FONT_SANS).getHeight();
+                int top = marginTop + (plotHeight - lines.length * lineHeight) / 2;
+                for (int i = 0; i < lines.length; i++) {
+                    if (lines[i].isEmpty()) continue;
+                    // The heading carries the weight; the rest is instruction.
+                    boolean heading = i == 0;
+                    g2.setFont(heading ? FONT_SANS_BOLD : FONT_SANS);
+                    g2.setColor(heading ? COLOR_CHARCOAL : Theme.TEXT_MUTED);
+                    int w = g2.getFontMetrics().stringWidth(lines[i]);
+                    g2.drawString(lines[i], marginLeft + (plotWidth - w) / 2,
+                            top + i * lineHeight);
+                }
                 return;
             }
 
