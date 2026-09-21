@@ -12,25 +12,11 @@ public class NmrVisualizer extends JFrame {
     // Every value below is defined in Theme.java, the app's stylesheet. These
     // are aliases so the existing call sites read unchanged; nothing here holds
     // a colour or a font of its own. Change the look in Theme, not here.
-    private static final Color COLOR_BG = Theme.BG;
-    private static final Color COLOR_WHITE = Theme.SURFACE;
-    private static final Color COLOR_CHARCOAL = Theme.TEXT;
-    private static final Color COLOR_BLUE_BORDER = Theme.BORDER;
-    private static final Color COLOR_BLUE_ACCENT = Theme.ACCENT;
-    private static final Color COLOR_PLOT_BLUE = Theme.PLOT_LINE;
-    private static final Color COLOR_PLOT_HOVER = Theme.PLOT_HOVER;
-    private static final Color COLOR_GRID_LINE = Theme.GRID_LINE;
-    private static final Color COLOR_TOOLTIP_BG = Theme.TOOLTIP_BG;
     private static final Font FONT_SANS = Theme.SANS;
     private static final Font FONT_SANS_BOLD = Theme.SANS_BOLD;
     private static final Font FONT_TITLE = Theme.TITLE;
     private static final Font FONT_LOG = Theme.MONO;
 
-    private static final Color RIBBON_PROCESS = Theme.RIBBON_PROCESS;
-    private static final Color RIBBON_ANALYZE = Theme.RIBBON_ANALYZE;
-    private static final Color RIBBON_APPS    = Theme.RIBBON_APPS;
-    private static final Color RIBBON_MANAGE  = Theme.RIBBON_MANAGE;
-    private static final Color RIBBON_IDLE    = Theme.RIBBON_IDLE;
 
     // App State
     private String currentFileContent = "";
@@ -66,6 +52,16 @@ public class NmrVisualizer extends JFrame {
     private volatile boolean contourRequestInFlight = false;
     // Guard + coalescing flag for the asynchronous load; both EDT-only.
     private boolean loadInFlight = false;
+    // Bumped on every load. The contour ladder is a background convenience, but
+    // PythonWorker.request() is synchronized, so a ladder in flight holds the
+    // worker for its whole computation and the next dataset the user picks
+    // queues behind it - measured at 1250 ms for a 1D spectrum that otherwise
+    // loads in 56 ms. A ladder whose generation has been superseded is dropped.
+    private volatile int loadGeneration;
+    // Long enough for an interactive load to get its request in first, short
+    // enough that a spectrum left alone has its ladder ready before anyone
+    // reaches for the contour wheel.
+    private static final int LADDER_DELAY_MS = 500;
     private boolean loadPending = false;
 
     // Every contour level the backend precomputed, spanning a wider threshold range
@@ -93,6 +89,10 @@ public class NmrVisualizer extends JFrame {
     private JTextArea logArea;
     private JLabel statusLabel;
     private JButton btnRecent;
+    private JCheckBoxMenuItem miDarkTheme;
+    // Metadata for whatever is currently plotted, for the Details panel and the
+    // one-line summary written to the log when a dataset opens.
+    private ParsedResponse loadedInfo;
     private JPanel rightContainer;
     // Holds the plot and, under it, the line naming the gestures that spectrum
     // responds to. 1D and 2D answer to different ones and nothing else in the
@@ -140,18 +140,18 @@ public class NmrVisualizer extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1000, 720);
         setLocationRelativeTo(null);
-        getContentPane().setBackground(COLOR_BG);
+        getContentPane().setBackground(Theme.BG);
         
         // Layout
         setLayout(new BorderLayout());
         
         // Create the TopSpin-style Ribbon/Toolbar
         JPanel topToolbar = new JPanel(new BorderLayout());
-        topToolbar.setBackground(RIBBON_PROCESS);
+        Theme.role(topToolbar, "ribbon-process");
         topToolbar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0, 60, 92)));
         
         JPanel leftToolbarButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-        leftToolbarButtons.setBackground(RIBBON_PROCESS);
+        Theme.role(leftToolbarButtons, "ribbon-process");
         
         // Create buttons
         JButton btnProc = createToolbarButton("<html>Pro<u>c</u>. Spectrum ▾</html>", new VectorIcon("spectrum", 16, 16), null);
@@ -257,18 +257,18 @@ public class NmrVisualizer extends JFrame {
         leftToolbarButtons.add(btnCalib);
         leftToolbarButtons.add(btnAdvanced);
         
-        JPanel rightToolbarButtons = createRibbonActionCluster(RIBBON_PROCESS);
+        JPanel rightToolbarButtons = createRibbonActionCluster(Theme.RIBBON_PROCESS);
 
         topToolbar.add(leftToolbarButtons, BorderLayout.WEST);
         topToolbar.add(rightToolbarButtons, BorderLayout.EAST);
         
         // ----------------- CREATE ANALYZE SUB-TOOLBAR -----------------
         JPanel analyzeToolbar = new JPanel(new BorderLayout());
-        analyzeToolbar.setBackground(RIBBON_ANALYZE);
+        Theme.role(analyzeToolbar, "ribbon-analyze");
         analyzeToolbar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(15, 45, 65)));
         
         JPanel leftAnalyzeButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-        leftAnalyzeButtons.setBackground(RIBBON_ANALYZE);
+        Theme.role(leftAnalyzeButtons, "ribbon-analyze");
         
         JButton btnIntegrate = createToolbarButton("<html><u>I</u>ntegrate ▾</html>", new VectorIcon("integrate", 16, 16), null);
         JButton btnMultiplets = createToolbarButton("<html>Multi<u>p</u>lets ▾</html>", new VectorIcon("multiplets", 16, 16), null);
@@ -350,14 +350,14 @@ public class NmrVisualizer extends JFrame {
         leftAnalyzeButtons.add(btnQuantify);
         leftAnalyzeButtons.add(btnSiNo);
         
-        JPanel rightAnalyzeButtons = createRibbonActionCluster(RIBBON_ANALYZE);
+        JPanel rightAnalyzeButtons = createRibbonActionCluster(Theme.RIBBON_ANALYZE);
         
         analyzeToolbar.add(leftAnalyzeButtons, BorderLayout.WEST);
         analyzeToolbar.add(rightAnalyzeButtons, BorderLayout.EAST);
 
         // ----------------- CREATE TAB NAVIGATION ROW 1 -----------------
         JPanel ribbonHeaderPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        ribbonHeaderPanel.setBackground(Theme.RIBBON_HEADER);
+        Theme.role(ribbonHeaderPanel, "ribbon-header");
         ribbonHeaderPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0, 36, 56)));
         
         JButton btnHamburger = new JButton(new VectorIcon("hamburger", 16, 16));
@@ -373,6 +373,11 @@ public class NmrVisualizer extends JFrame {
                 "Opening dataset select dialog...", e -> chooseLocalFile());
         hamburgerMenu.add(miOpenDataset);
         hamburgerMenu.add(createLogMenuItem("Save Dataset (Ctrl+S)", "Saving dataset..."));
+        hamburgerMenu.addSeparator();
+        miDarkTheme = new JCheckBoxMenuItem("Dark Theme", Theme.isDark());
+        miDarkTheme.setFont(FONT_SANS);
+        miDarkTheme.addActionListener(e -> setDarkTheme(miDarkTheme.isSelected()));
+        hamburgerMenu.add(miDarkTheme);
         hamburgerMenu.addSeparator();
         hamburgerMenu.add(createLogMenuItem("TopSpin Preferences", "Opening TopSpin preferences..."));
         hamburgerMenu.add(createLogMenuItem("Exit TopSpin", "Exiting TopSpin..."));
@@ -400,11 +405,11 @@ public class NmrVisualizer extends JFrame {
         
         // ----------------- CREATE APPLICATIONS SUB-TOOLBAR -----------------
         JPanel appsToolbar = new JPanel(new BorderLayout());
-        appsToolbar.setBackground(RIBBON_APPS);
+        Theme.role(appsToolbar, "ribbon-apps");
         appsToolbar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(15, 68, 60)));
         
         JPanel leftAppsButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-        leftAppsButtons.setBackground(RIBBON_APPS);
+        Theme.role(leftAppsButtons, "ribbon-apps");
         
         JButton btnSimulate = createToolbarButton("<html>Simulate ▾</html>", new VectorIcon("simulate", 16, 16), null);
         JButton btnSmallMol = createToolbarButton("<html>Small m<u>o</u>cules ▾</html>", new VectorIcon("smallmolecules", 16, 16), null);
@@ -450,18 +455,18 @@ public class NmrVisualizer extends JFrame {
         leftAppsButtons.add(btnFbs);
         leftAppsButtons.add(btnDynamics);
         
-        JPanel rightAppsButtons = createRibbonActionCluster(RIBBON_APPS);
+        JPanel rightAppsButtons = createRibbonActionCluster(Theme.RIBBON_APPS);
         
         appsToolbar.add(leftAppsButtons, BorderLayout.WEST);
         appsToolbar.add(rightAppsButtons, BorderLayout.EAST);
         
         // ----------------- CREATE MANAGE SUB-TOOLBAR -----------------
         JPanel manageToolbar = new JPanel(new BorderLayout());
-        manageToolbar.setBackground(RIBBON_MANAGE);
+        Theme.role(manageToolbar, "ribbon-manage");
         manageToolbar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(64, 40, 54)));
         
         JPanel leftManageButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-        leftManageButtons.setBackground(RIBBON_MANAGE);
+        Theme.role(leftManageButtons, "ribbon-manage");
         
         JButton btnSpectrometer = createToolbarButton("<html>Spectr<u>o</u>meter ▾</html>", new VectorIcon("spectrometer", 16, 16), null);
         JButton btnSecurity = createToolbarButton("<html>Securit<u>y</u> ▾</html>", new VectorIcon("security", 16, 16), null);
@@ -491,7 +496,7 @@ public class NmrVisualizer extends JFrame {
         leftManageButtons.add(btnSecurity);
         leftManageButtons.add(btnCommands);
         
-        JPanel rightManageButtons = createRibbonActionCluster(RIBBON_MANAGE);
+        JPanel rightManageButtons = createRibbonActionCluster(Theme.RIBBON_MANAGE);
         
         manageToolbar.add(leftManageButtons, BorderLayout.WEST);
         manageToolbar.add(rightManageButtons, BorderLayout.EAST);
@@ -503,7 +508,7 @@ public class NmrVisualizer extends JFrame {
         
         // Create the secondary spectral interaction toolbar (TopSpin style, lighter than ribbon)
         JPanel secToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 3));
-        secToolbar.setBackground(Theme.TOOLBAR_BG);
+        Theme.role(secToolbar, "toolbar");
         secToolbar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.TOOLBAR_EDGE));
         
         JButton btnScaleUp = createSecToolbarButton("*2", "Scale Up (Double Amplitude)");
@@ -594,20 +599,20 @@ public class NmrVisualizer extends JFrame {
         
         secToolbar.add(btnScaleUp);
         secToolbar.add(btnScaleDown);
-        secToolbar.add(new JLabel("|") {{ setForeground(Theme.TOOLBAR_SEPARATOR); }});
+        secToolbar.add(Theme.role(new JLabel("|"), "separator"));
         secToolbar.add(btnVStretch);
         secToolbar.add(btnHStretch);
-        secToolbar.add(new JLabel("|") {{ setForeground(Theme.TOOLBAR_SEPARATOR); }});
+        secToolbar.add(Theme.role(new JLabel("|"), "separator"));
         secToolbar.add(btnVZoom);
         secToolbar.add(btnHZoom);
         secToolbar.add(btnResetScale);
-        secToolbar.add(new JLabel("|") {{ setForeground(Theme.TOOLBAR_SEPARATOR); }});
+        secToolbar.add(Theme.role(new JLabel("|"), "separator"));
         secToolbar.add(btnZoomIn2);
         secToolbar.add(btnZoomOut2);
         secToolbar.add(btnPrevZoom);
         secToolbar.add(btnFit);
         secToolbar.add(btnRefresh);
-        secToolbar.add(new JLabel("|") {{ setForeground(Theme.TOOLBAR_SEPARATOR); }});
+        secToolbar.add(Theme.role(new JLabel("|"), "separator"));
         secToolbar.add(btnToggleGrid);
         
         JPanel topContainer = new JPanel();
@@ -622,7 +627,7 @@ public class NmrVisualizer extends JFrame {
         // Sidebar
         JPanel sidebar = new JPanel();
         sidebar.setLayout(new BoxLayout(sidebar, BoxLayout.Y_AXIS));
-        sidebar.setBackground(COLOR_BG);
+        sidebar.setBackground(Theme.BG);
         sidebar.setPreferredSize(new Dimension(Theme.SIDEBAR_WIDTH, 0));
         sidebar.setBorder(BorderFactory.createCompoundBorder(
             Theme.edge(0, 0, 0, 1), Theme.padding(Theme.SIDEBAR_PADDING)));
@@ -630,7 +635,7 @@ public class NmrVisualizer extends JFrame {
         // One row for one button. GridLayout(2, 1) kept reserving a second row
         // after the BMRB fetch control was removed, which is what left an empty
         // band under the load button.
-        JPanel fileBox = Theme.sectionPanel("1. DATA IMPORT",
+        JPanel fileBox = themedSection("1. DATA IMPORT",
                 new GridLayout(3, 1, 0, Theme.SPACE_SM));
 
         // Browsing comes first: it is the one that does not require knowing
@@ -654,7 +659,7 @@ public class NmrVisualizer extends JFrame {
         sidebar.add(Box.createVerticalStrut(Theme.SPACE_LG));
         
         // Configuration Box
-        JPanel configBox = Theme.sectionPanel("2. AXIS & DRAG CONFIG", new GridBagLayout());
+        JPanel configBox = themedSection("2. AXIS & DRAG CONFIG", new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.HORIZONTAL;
         // Roomier vertically than horizontally: rows need separating, a label
@@ -693,14 +698,14 @@ public class NmrVisualizer extends JFrame {
         sidebar.add(Box.createVerticalStrut(Theme.SPACE_LG));
 
         // Log Box
-        JPanel logBox = Theme.sectionPanel("3. SYSTEM LOGS", new BorderLayout());
+        JPanel logBox = themedSection("3. SYSTEM LOGS", new BorderLayout());
         logArea = new JTextArea();
-        logArea.setBackground(COLOR_WHITE);
-        logArea.setForeground(COLOR_CHARCOAL);
+        Theme.role(logArea, "surface");
+        logArea.setForeground(Theme.TEXT);
         logArea.setFont(FONT_LOG);
         logArea.setEditable(false);
         logArea.setLineWrap(true);
-        logArea.setCaretColor(COLOR_CHARCOAL);
+        logArea.setCaretColor(Theme.TEXT);
         // Both masks are bound explicitly rather than relying on the look and
         // feel to supply either: on this JDK the Metal text input map ships
         // neither Cmd+C nor Ctrl+C on macOS, so copy was bound to nothing at
@@ -765,7 +770,7 @@ public class NmrVisualizer extends JFrame {
         logArea.setBorder(Theme.padding(Theme.SPACE_SM));
         JScrollPane logScroll = new JScrollPane(logArea);
         logScroll.setBorder(Theme.field());
-        logScroll.getViewport().setBackground(COLOR_WHITE);
+        logScroll.getViewport().setBackground(Theme.SURFACE);
         logBox.add(logScroll, BorderLayout.CENTER);
         
         // BoxLayout stretches children to their maximum height, which left the import
@@ -779,12 +784,12 @@ public class NmrVisualizer extends JFrame {
         
         // Right Side: Plot container
         rightContainer = new JPanel(new BorderLayout());
-        rightContainer.setBackground(COLOR_BG);
+        rightContainer.setBackground(Theme.BG);
         rightContainer.setBorder(Theme.padding(Theme.SPACE_MD));
         
         // Zoom Controls Panel
         JPanel tabHeader = new JPanel(new BorderLayout());
-        tabHeader.setBackground(COLOR_BG);
+        tabHeader.setBackground(Theme.BG);
 
         JPanel rightZoomButtons = Theme.panel(new FlowLayout(FlowLayout.RIGHT, Theme.SPACE_SM, 0));
         // The row sat directly on the plot's top edge; separate the control
@@ -802,6 +807,11 @@ public class NmrVisualizer extends JFrame {
         btnReset.addActionListener(e -> plot2D.resetView());
         btnDetach.addActionListener(e -> togglePlotDetached());
 
+        JButton btnDetails = createRetroButton(" Details ");
+        btnDetails.setToolTipText("Nucleus, pulse programme, solvent, ranges and noise level");
+        btnDetails.addActionListener(e -> showDatasetDetails());
+
+        rightZoomButtons.add(btnDetails);
         rightZoomButtons.add(btnZoomIn);
         rightZoomButtons.add(btnZoomOut);
         rightZoomButtons.add(btnReset);
@@ -835,7 +845,7 @@ public class NmrVisualizer extends JFrame {
         // Far right vertical console command shortcut bar
         JPanel shortcutPanel = new JPanel();
         shortcutPanel.setLayout(new BoxLayout(shortcutPanel, BoxLayout.Y_AXIS));
-        shortcutPanel.setBackground(COLOR_BG);
+        shortcutPanel.setBackground(Theme.BG);
         shortcutPanel.setBorder(BorderFactory.createCompoundBorder(
             Theme.edge(0, 1, 0, 0), Theme.padding(Theme.SPACE_SM)));
         
@@ -901,11 +911,11 @@ public class NmrVisualizer extends JFrame {
         
         // Command-Line Prompt Panel
         JPanel cmdPromptPanel = new JPanel(new BorderLayout(5, 0));
-        cmdPromptPanel.setBackground(COLOR_BG);
+        cmdPromptPanel.setBackground(Theme.BG);
         cmdPromptPanel.setBorder(BorderFactory.createCompoundBorder(
             Theme.edge(1, 0, 0, 0), Theme.padding(Theme.SPACE_SM, Theme.SPACE_MD)));
         
-        JLabel lblPrompt = new JLabel("TopSpin CMD: > ");
+        JLabel lblPrompt = new JLabel("Command: ");
         lblPrompt.setFont(Theme.MONO.deriveFont(Font.BOLD));
         lblPrompt.setForeground(Theme.TEXT);
 
@@ -930,7 +940,7 @@ public class NmrVisualizer extends JFrame {
         
         // Footer Status Bar
         JPanel footer = new JPanel(new BorderLayout());
-        footer.setBackground(Theme.ACCENT);
+        Theme.role(footer, "footer");
         footer.setBorder(Theme.edge(1, 0, 0, 0));
         statusLabel = new JLabel(" STATUS: SYSTEM READY");
         statusLabel.setFont(Theme.SANS);
@@ -1129,6 +1139,178 @@ public class NmrVisualizer extends JFrame {
         }
         return null;
     }
+
+    /**
+     * Switch palette on a window that is already open.
+     *
+     * Three passes, because Swing colours arrive from three places: the look
+     * and feel's defaults cover menus and dialogs, updateComponentTreeUI makes
+     * existing components re-read them, and Theme.refresh puts back every
+     * colour this app set itself - which updateComponentTreeUI does not touch,
+     * since an explicit setBackground outranks the LAF.
+     */
+    private void setDarkTheme(boolean dark) {
+        Theme.setMode(dark ? Theme.Mode.DARK : Theme.Mode.LIGHT);
+        Theme.installUiDefaults();
+        SwingUtilities.updateComponentTreeUI(this);
+        Theme.refresh(getContentPane());
+
+        // Borders hold their own colours and are not rebuilt by the tree walk.
+        rebuildThemedBorders();
+
+        if (detachedPlotFrame != null) {
+            SwingUtilities.updateComponentTreeUI(detachedPlotFrame);
+            Theme.refresh(detachedPlotFrame.getContentPane());
+        }
+        revalidate();
+        repaint();
+        log("Switched to the " + (dark ? "dark" : "light") + " theme.");
+    }
+
+    /** One line naming what is on screen: dimensionality, nucleus, size. */
+    private String datasetSummary() {
+        if (loadedInfo == null) return "nothing";
+        StringBuilder sb = new StringBuilder();
+        sb.append(loadedDimension).append("D");
+        if (!loadedInfo.xLabel.isEmpty()) sb.append(' ').append(loadedInfo.xLabel);
+        if (loadedDimension > 1 && !loadedInfo.yLabel.isEmpty()) {
+            sb.append('/').append(loadedInfo.yLabel);
+        }
+        if (!loadedInfo.title.isEmpty()) sb.append(" - ").append(loadedInfo.title);
+        if (loadedInfo.spectrumSize > 0) {
+            sb.append(" (").append(loadedInfo.spectrumSize).append(" points");
+            if (loadedInfo.sfo1 > 0) {
+                sb.append(String.format(Locale.US, ", %.1f MHz", loadedInfo.sfo1));
+            }
+            sb.append(')');
+        } else if (!contourLines.isEmpty()) {
+            sb.append(" (").append(contourLines.size()).append(" contour levels)");
+        }
+        return sb.toString();
+    }
+
+    /** Everything known about the loaded spectrum, as label/value rows. */
+    private List<String[]> datasetDetails() {
+        List<String[]> rows = new ArrayList<>();
+        if (loadedInfo == null) return rows;
+        ParsedResponse p = loadedInfo;
+
+        rows.add(new String[] { "Source", currentFileContent.isEmpty() ? "-" : currentFileContent });
+        rows.add(new String[] { "Format", p.vendor.isEmpty() ? currentFileType : p.vendor });
+        rows.add(new String[] { "Dimensionality", loadedDimension + "D"
+                + (p.confidence.isEmpty() ? "" : "  (detected, confidence " + p.confidence + ")") });
+        rows.add(new String[] { "Axes", loadedDimension == 1
+                ? p.xLabel + " vs " + p.yLabel
+                : p.xLabel + " / " + p.yLabel });
+        if (p.sfo1 > 0) {
+            rows.add(new String[] { "Spectrometer", String.format(Locale.US, "%.4f MHz", p.sfo1) });
+        }
+        if (!p.pulprog.isEmpty()) rows.add(new String[] { "Pulse programme", p.pulprog });
+        if (!p.solvent.isEmpty()) rows.add(new String[] { "Solvent", p.solvent });
+        if (!p.title.isEmpty()) rows.add(new String[] { "Title", p.title });
+
+        // The second axis means different things by dimensionality: intensity
+        // for a 1D trace, the indirect ppm axis for a 2D map. Labelling both
+        // "Intensity range" reported F1 ppm values as signal heights.
+        boolean twoD = loadedDimension > 1;
+        if (!Double.isNaN(p.xMin) && !Double.isNaN(p.xMax)) {
+            rows.add(new String[] { twoD ? "F2 shift range" : "Chemical shift range",
+                    String.format(Locale.US, "%.4f to %.4f ppm", p.xMin, p.xMax) });
+        }
+        if (!Double.isNaN(p.yMin) && !Double.isNaN(p.yMax)) {
+            rows.add(twoD
+                    ? new String[] { "F1 shift range",
+                            String.format(Locale.US, "%.4f to %.4f ppm", p.yMin, p.yMax) }
+                    : new String[] { "Intensity range",
+                            NmrPlot2D.formatIntensity(p.yMin) + " to "
+                                    + NmrPlot2D.formatIntensity(p.yMax) });
+        }
+        if (p.spectrumSize > 0) {
+            rows.add(new String[] { "Spectrum points", String.valueOf(p.spectrumSize) });
+        }
+        if (p.tracePoints > 0) {
+            rows.add(new String[] { "Trace points drawn", String.valueOf(p.tracePoints) });
+        }
+        if (!Double.isNaN(p.noise)) {
+            rows.add(new String[] { "Noise (sigma)", NmrPlot2D.formatIntensity(p.noise) });
+        }
+        if (!contourLines.isEmpty()) {
+            rows.add(new String[] { "Contour levels", String.valueOf(contourLines.size()) });
+        }
+        int peaks = plot2D != null ? plot2D.pickedPeakCount() : dataPoints.size();
+        rows.add(new String[] { "Peaks listed", String.valueOf(peaks) });
+        return rows;
+    }
+
+    /**
+     * Show what is loaded.
+     *
+     * The backend has always reported this; until now it went nowhere, so a
+     * spectrum on screen could not say which nucleus or pulse programme
+     * produced it.
+     */
+    private void showDatasetDetails() {
+        List<String[]> rows = datasetDetails();
+        if (rows.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "No spectrum is loaded yet.", "Spectrum Details",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        JPanel panel = Theme.panel(new GridBagLayout());
+        panel.setBorder(Theme.padding(Theme.SPACE_MD));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.insets = new Insets(Theme.SPACE_XS, 0, Theme.SPACE_XS, Theme.SPACE_MD);
+
+        int row = 0;
+        for (String[] pair : rows) {
+            gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
+            panel.add(Theme.label(pair[0]), gbc);
+
+            gbc.gridx = 1; gbc.weightx = 1;
+            JTextField value = new JTextField(pair[1]);
+            // A field rather than a label: the path in particular is worth
+            // copying, and a label cannot be selected.
+            value.setEditable(false);
+            value.setBorder(null);
+            value.setBackground(Theme.BG);
+            value.setForeground(Theme.TEXT);
+            value.setFont(Theme.SANS);
+            value.setColumns(Math.min(52, Math.max(18, pair[1].length())));
+            panel.add(value, gbc);
+            row++;
+        }
+
+        JOptionPane.showMessageDialog(this, panel,
+                "Spectrum Details", JOptionPane.PLAIN_MESSAGE);
+    }
+
+    /** A titled section, remembered so its border can be rebuilt on a switch. */
+    private JPanel themedSection(String title, LayoutManager layout) {
+        JPanel panel = Theme.sectionPanel(title, layout);
+        themedSections.put(panel, title);
+        return panel;
+    }
+
+    /**
+     * Re-make the borders that carry a palette colour.
+     *
+     * A Border is immutable once built, so the titled frames and hairlines
+     * created at startup still hold the old theme's colours after a switch.
+     */
+    private void rebuildThemedBorders() {
+        if (plot2D != null) plot2D.setBorder(Theme.field());
+        if (logArea != null) logArea.setBorder(Theme.padding(Theme.SPACE_SM));
+        for (java.util.Map.Entry<JComponent, String> e : themedSections.entrySet()) {
+            e.getKey().setBorder(Theme.section(e.getValue()));
+        }
+    }
+
+    // Titled panels, so their borders can be rebuilt in the new palette.
+    private final java.util.Map<JComponent, String> themedSections =
+            new java.util.LinkedHashMap<>();
 
     /** Open the browser, and load whatever it hands back. */
     private void showDatasetBrowser() {
@@ -1485,6 +1667,35 @@ public class NmrVisualizer extends JFrame {
         int ladderKMin, ladderKMax, ladderWindow = 14;
         // NaN when the backend did not report a domain (non-Bruker responses).
         double baseMin = Double.NaN, baseMax = Double.NaN;
+
+        // Acquisition metadata. The backend has always reported these; nothing
+        // on this side read them, so a loaded spectrum could not say what it
+        // was - which nucleus, which pulse programme, what the noise level is.
+        String title = "", pulprog = "", solvent = "", vendor = "", confidence = "";
+        double sfo1 = 0.0, noise = Double.NaN;
+        double xMin = Double.NaN, xMax = Double.NaN, yMin = Double.NaN, yMax = Double.NaN;
+        int spectrumSize = 0, tracePoints = 0;
+    }
+
+    /** A JSON value as text, whichever type it arrived as. */
+    private static String text(Object value) {
+        if (value == null) return "";
+        // confidence comes back as "high" from Bruker and as 1.0 from the
+        // simulator, so the type cannot be assumed.
+        if (value instanceof Double) {
+            double d = (Double) value;
+            return d == Math.rint(d) ? String.valueOf((long) d) : String.valueOf(d);
+        }
+        return value.toString();
+    }
+
+    private static double number(Object value, double fallback) {
+        if (value instanceof Double) return (Double) value;
+        if (value instanceof String) {
+            try { return Double.parseDouble((String) value); }
+            catch (NumberFormatException ignored) { return fallback; }
+        }
+        return fallback;
     }
 
     // Pure decoding: no Swing, no shared mutable state, safe on any thread.
@@ -1528,6 +1739,20 @@ public class NmrVisualizer extends JFrame {
                         (String) pointMap.get("residue"), px, py, (Double) pointMap.get("z")));
             }
         }
+
+        out.title = text(map.get("title"));
+        out.pulprog = text(map.get("pulprog"));
+        out.solvent = text(map.get("solvent"));
+        out.vendor = text(map.get("vendor"));
+        out.confidence = text(map.get("confidence"));
+        out.sfo1 = number(map.get("sfo1"), 0.0);
+        out.noise = number(map.get("noise"), Double.NaN);
+        out.xMin = number(map.get("x_min"), Double.NaN);
+        out.xMax = number(map.get("x_max"), Double.NaN);
+        out.yMin = number(map.get("y_min"), Double.NaN);
+        out.yMax = number(map.get("y_max"), Double.NaN);
+        out.spectrumSize = (int) number(map.get("spectrum_size"), 0);
+        out.tracePoints = (int) number(map.get("trace_points"), 0);
 
         Double bMin = (Double) map.get("contour_base_min");
         Double bMax = (Double) map.get("contour_base_max");
@@ -1702,6 +1927,7 @@ public class NmrVisualizer extends JFrame {
         dataPoints = parsed.points;
         loadedDimension = parsed.dimension;
         tracePoints = parsed.trace;
+        loadedInfo = parsed;
 
         if (parsed.isLadder) {
             ladderContours = parsed.contours;
@@ -1714,14 +1940,25 @@ public class NmrVisualizer extends JFrame {
             if (ladderLoaded) selectLadderWindow();
         } else {
             contourLines = parsed.contours;
+            // Any ladder in hand was built for the spectrum that was loaded
+            // before this one. Left marked valid it would be used to scale the
+            // new spectrum's contours, so it is discarded here rather than only
+            // when a replacement is requested - which never happens at all for
+            // a 1D dataset.
+            ladderLoaded = false;
+            ladderContours = new ArrayList<>();
+            ladderK0 = Integer.MIN_VALUE;
         }
 
         uniqueAtoms = parsed.atoms;
 
         // Update dropdowns without triggering event handlers
-        log("SUCCESS: Loaded " + dataPoints.size() + " paired residue points.");
-        log("Atoms available: " + uniqueAtoms);
-        setStatus("Loaded " + dataPoints.size() + " points");
+        // What was actually opened, in one line. "Loaded 0 paired residue
+        // points" is true of every 2D dataset and tells nobody anything.
+        log("Loaded: " + datasetSummary());
+        // The point count is meaningless for a 2D dataset, where it is always
+        // zero: contours carry the data, not a peak list.
+        setStatus(datasetSummary());
 
         updatePlots();
     }
@@ -1747,6 +1984,7 @@ public class NmrVisualizer extends JFrame {
             return;
         }
 
+        loadGeneration++;
         setStatus("Parsing data via Python backend...");
 
         String x = axisAtom(0);
@@ -1782,7 +2020,11 @@ public class NmrVisualizer extends JFrame {
                 if (loadPending) {
                     loadPending = false;
                     parseAndLoadData();
-                } else if (finalFailure == null && "bruker".equals(type)) {
+                } else if (finalFailure == null && "bruker".equals(type)
+                        && loadedDimension > 1) {
+                    // Only 2D has contours. A 1D dataset was paying for a
+                    // second full backend round trip whose entire result was
+                    // an empty contour list.
                     requestLadderInBackground(fx, fy, fz);
                 }
             });
@@ -1798,7 +2040,19 @@ public class NmrVisualizer extends JFrame {
 
         final String fx = x, fy = y, fz = z;
         final String payload = buildBackendPayload(true);
+        final int generation = loadGeneration;
         new Thread(() -> {
+            // Hold back briefly so an interactive load gets the worker first.
+            // Browsing several datasets otherwise pays for a ladder between
+            // every pair of them, and each one blocks the next load outright.
+            try {
+                Thread.sleep(LADDER_DELAY_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            if (generation != loadGeneration) return;   // a newer load won
+
             ParsedResponse parsed;
             try {
                 parsed = parseResponse(runPythonBackend("bruker", fx, fy, fz, payload));
@@ -1807,8 +2061,14 @@ public class NmrVisualizer extends JFrame {
                         + "); scrolling will recompute each step.");
                 return;
             }
+            // Checked again: the request itself takes long enough that the
+            // dataset may have changed underneath it, and storing a ladder
+            // built for the previous spectrum would mis-scale its contours.
+            if (generation != loadGeneration) return;
             final ParsedResponse done = parsed;
-            SwingUtilities.invokeLater(() -> storeLadder(done));
+            SwingUtilities.invokeLater(() -> {
+                if (generation == loadGeneration) storeLadder(done);
+            });
         }, "contour-ladder").start();
     }
 
@@ -2295,9 +2555,20 @@ public class NmrVisualizer extends JFrame {
     
     // Print / export / copy / layout sit at the right-hand end of every ribbon tab
     // and behave identically on each, so all four tabs build theirs from here.
+    /** Which ribbon a colour belongs to, for re-theming the action clusters. */
+    private static String ribbonRoleFor(Color background) {
+        if (Theme.RIBBON_ANALYZE.equals(background)) return "ribbon-analyze";
+        if (Theme.RIBBON_APPS.equals(background)) return "ribbon-apps";
+        if (Theme.RIBBON_MANAGE.equals(background)) return "ribbon-manage";
+        return "ribbon-process";
+    }
+
     private JPanel createRibbonActionCluster(Color background) {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
         panel.setBackground(background);
+        // Tagged by which ribbon it belongs to, so a theme switch restores that
+        // ribbon's shade instead of the generic panel colour.
+        Theme.role(panel, ribbonRoleFor(background));
 
         // All three announced success from a dialog - "Copied plot image to
         // clipboard." - without printing, exporting or copying anything. A
@@ -2431,7 +2702,7 @@ public class NmrVisualizer extends JFrame {
         JButton btn = new JButton(text);
         btn.setToolTipText(tooltip);
         btn.setFont(new Font("Arial", Font.BOLD, 12));
-        btn.setForeground(new Color(40, 50, 65));
+        Theme.role(btn, "toolbar-button");
         btn.setContentAreaFilled(false);
         btn.setOpaque(false);
         btn.setFocusPainted(false);
@@ -2440,7 +2711,7 @@ public class NmrVisualizer extends JFrame {
         btn.addMouseListener(new MouseAdapter() {
             public void mouseEntered(MouseEvent evt) {
                 btn.setOpaque(true);
-                btn.setBackground(new Color(202, 212, 226));
+                btn.setBackground(Theme.TOOLBAR_HOVER);
             }
             public void mouseExited(MouseEvent evt) {
                 btn.setOpaque(false);
@@ -2456,12 +2727,12 @@ public class NmrVisualizer extends JFrame {
         btn.setOpaque(false);
         btn.setFocusPainted(false);
         btn.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
-        btn.setForeground(new Color(40, 50, 65));
+        Theme.role(btn, "toolbar-button");
         
         btn.addMouseListener(new MouseAdapter() {
             public void mouseEntered(MouseEvent evt) {
                 btn.setOpaque(true);
-                btn.setBackground(new Color(202, 212, 226));
+                btn.setBackground(Theme.TOOLBAR_HOVER);
             }
             public void mouseExited(MouseEvent evt) {
                 btn.setOpaque(false);
@@ -2474,15 +2745,15 @@ public class NmrVisualizer extends JFrame {
         Color selectedShade;
         String label;
         switch (tabName) {
-            case "analyze": selected = btnAnalyzeTab; selectedShade = RIBBON_ANALYZE; label = "Analyze"; break;
-            case "apps":    selected = btnAppsTab;    selectedShade = RIBBON_APPS;    label = "Applications"; break;
-            case "manage":  selected = btnManageTab;  selectedShade = RIBBON_MANAGE;  label = "Manage"; break;
-            case "process": selected = btnProcessTab; selectedShade = RIBBON_PROCESS; label = "Process"; break;
+            case "analyze": selected = btnAnalyzeTab; selectedShade = Theme.RIBBON_ANALYZE; label = "Analyze"; break;
+            case "apps":    selected = btnAppsTab;    selectedShade = Theme.RIBBON_APPS;    label = "Applications"; break;
+            case "manage":  selected = btnManageTab;  selectedShade = Theme.RIBBON_MANAGE;  label = "Manage"; break;
+            case "process": selected = btnProcessTab; selectedShade = Theme.RIBBON_PROCESS; label = "Process"; break;
             default: return;
         }
 
         for (JButton tab : new JButton[] { btnProcessTab, btnAnalyzeTab, btnAppsTab, btnManageTab }) {
-            tab.setBackground(RIBBON_IDLE);
+            tab.setBackground(Theme.RIBBON_IDLE);
             tab.setOpaque(false);
         }
         selected.setOpaque(true);
@@ -2707,7 +2978,7 @@ public class NmrVisualizer extends JFrame {
         child.setRegionSelectListener(this::openRegionWindow);
         child.setContourScrollListener(this::handleContourScroll);
         child.setIntensityScaleListener(this::showIntensityScale);
-        child.setBorder(BorderFactory.createLineBorder(COLOR_BLUE_BORDER));
+        child.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
         child.setToolTipText("<html>Drag a box to open a further region.<br>"
                 + "Right-drag or shift-drag to pan. Scroll to change the contour level.</html>");
         regionViews.add(child);
@@ -2719,11 +2990,11 @@ public class NmrVisualizer extends JFrame {
 
         JFrame frame = new JFrame(title);
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        frame.getContentPane().setBackground(COLOR_BG);
+        frame.getContentPane().setBackground(Theme.BG);
         frame.setLayout(new BorderLayout());
 
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 4));
-        bar.setBackground(COLOR_BG);
+        bar.setBackground(Theme.BG);
         JButton bIn = createRetroButton(" [+] Zoom In ");
         JButton bOut = createRetroButton(" [-] Zoom Out ");
         JButton bHome = createRetroButton(" Reset Region ");
@@ -2787,10 +3058,10 @@ public class NmrVisualizer extends JFrame {
         if (detachedPlaceholder == null) {
             detachedPlaceholder = new JLabel("PLOT DETACHED - close the spectrum window to dock it again", JLabel.CENTER);
             detachedPlaceholder.setFont(FONT_SANS);
-            detachedPlaceholder.setForeground(COLOR_CHARCOAL);
-            detachedPlaceholder.setBorder(BorderFactory.createLineBorder(COLOR_BLUE_BORDER));
+            detachedPlaceholder.setForeground(Theme.TEXT);
+            detachedPlaceholder.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
             detachedPlaceholder.setOpaque(true);
-            detachedPlaceholder.setBackground(COLOR_WHITE);
+            detachedPlaceholder.setBackground(Theme.SURFACE);
         }
         rightContainer.add(detachedPlaceholder, BorderLayout.CENTER);
         rightContainer.revalidate();
@@ -2798,7 +3069,7 @@ public class NmrVisualizer extends JFrame {
 
         detachedPlotFrame = new JFrame("2D Spectrum - Detached View");
         detachedPlotFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        detachedPlotFrame.getContentPane().setBackground(COLOR_WHITE);
+        detachedPlotFrame.getContentPane().setBackground(Theme.SURFACE);
         detachedPlotFrame.add(plot2D);
         detachedPlotFrame.setSize(1000, 900);
         detachedPlotFrame.setLocationRelativeTo(this);
@@ -3027,7 +3298,7 @@ public class NmrVisualizer extends JFrame {
         btn.setForeground(Color.WHITE);
         btn.setBackground(new Color(60, 70, 80));
         btn.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(COLOR_BLUE_BORDER),
+            BorderFactory.createLineBorder(Theme.BORDER),
             BorderFactory.createEmptyBorder(4, 4, 4, 4)
         ));
         btn.setFocusPainted(false);
@@ -3039,7 +3310,7 @@ public class NmrVisualizer extends JFrame {
         
         btn.addMouseListener(new MouseAdapter() {
             public void mouseEntered(MouseEvent evt) {
-                btn.setBackground(COLOR_PLOT_BLUE);
+                btn.setBackground(Theme.PLOT_LINE);
             }
             public void mouseExited(MouseEvent evt) {
                 btn.setBackground(new Color(60, 70, 80));
@@ -3783,7 +4054,7 @@ public class NmrVisualizer extends JFrame {
         }
 
         public NmrPlot2D() {
-            setBackground(COLOR_WHITE);
+            setBackground(Theme.SURFACE);
             
             MouseAdapter mouseAdapter = new MouseAdapter() {
                 public void mouseWheelMoved(MouseWheelEvent e) {
@@ -4135,26 +4406,26 @@ public class NmrVisualizer extends JFrame {
 
                 int gx = marginLeft + (int) (frac * plotWidth);
                 if (showGrid) {
-                    g2.setColor(COLOR_GRID_LINE);
+                    g2.setColor(Theme.GRID_LINE);
                     g2.drawLine(gx, marginTop, gx, marginTop + plotHeight);
                 }
-                g2.setColor(COLOR_CHARCOAL);
+                g2.setColor(Theme.TEXT);
                 double vx = viewMinX + (invertX ? (1.0 - frac) : frac) * (viewMaxX - viewMinX);
                 g2.drawString(String.format("%.2f", vx), gx - 15, marginTop + plotHeight + 16);
 
                 int gy = marginTop + (int) (frac * plotHeight);
                 if (showGrid) {
-                    g2.setColor(COLOR_GRID_LINE);
+                    g2.setColor(Theme.GRID_LINE);
                     g2.drawLine(marginLeft, gy, marginLeft + plotWidth, gy);
                 }
-                g2.setColor(COLOR_CHARCOAL);
+                g2.setColor(Theme.TEXT);
                 double vy = viewMinY + (1.0 - frac) * (viewMaxY - viewMinY);
                 String vyText = formatIntensity(vy);
                 g2.drawString(vyText, marginLeft - 6 - g2.getFontMetrics().stringWidth(vyText), gy + 5);
             }
 
             // Axis titles
-            g2.setColor(COLOR_CHARCOAL);
+            g2.setColor(Theme.TEXT);
             g2.setFont(FONT_SANS_BOLD);
             g2.drawString(xLabel + " (PPM)", width / 2 - 20, marginTop + plotHeight + 38);
             // No rotated "Intensity" title here: the left gutter is sized for
@@ -4190,7 +4461,7 @@ public class NmrVisualizer extends JFrame {
                 nPts++;
             }
             if (nPts >= 2) {
-                g2.setColor(COLOR_PLOT_BLUE);
+                g2.setColor(Theme.PLOT_LINE);
                 g2.setStroke(new BasicStroke(1.0f));
                 g2.drawPolyline(xs, ys, nPts);
             }
@@ -4205,7 +4476,7 @@ public class NmrVisualizer extends JFrame {
                 int px = trace1dX(p.x, plotWidth);
                 int py = trace1dY(p.y, plotHeight);
 
-                g2.setColor(COLOR_PLOT_HOVER);
+                g2.setColor(Theme.PLOT_HOVER);
                 g2.drawLine(px, py - 10, px, py - 3);
 
                 boolean crowded = false;
@@ -4214,7 +4485,7 @@ public class NmrVisualizer extends JFrame {
                 }
                 if (crowded) continue;
                 labelledAt.add(px);
-                g2.setColor(COLOR_CHARCOAL);
+                g2.setColor(Theme.TEXT);
                 g2.drawString(String.format("%.2f", p.x), px - 10, py - 13);
             }
 
@@ -4240,7 +4511,7 @@ public class NmrVisualizer extends JFrame {
 
             // Hover readout
             if (hoveredPoint != null && hoveredScreenPos != null) {
-                g2.setColor(COLOR_PLOT_HOVER);
+                g2.setColor(Theme.PLOT_HOVER);
                 g2.fillOval(hoveredScreenPos.x - 4, hoveredScreenPos.y - 4, 8, 8);
                 g2.setColor(Color.BLACK);
                 g2.drawOval(hoveredScreenPos.x - 4, hoveredScreenPos.y - 4, 8, 8);
@@ -4251,12 +4522,12 @@ public class NmrVisualizer extends JFrame {
                 if (tx + boxWidth > width) tx = hoveredScreenPos.x - boxWidth - 10;
                 if (ty < 0) ty = hoveredScreenPos.y + 10;
 
-                g2.setColor(COLOR_TOOLTIP_BG);
+                g2.setColor(Theme.TOOLTIP_BG);
                 g2.fillRect(tx, ty, boxWidth, boxHeight);
                 g2.setColor(new Color(100, 100, 100));
                 g2.drawRect(tx, ty, boxWidth, boxHeight);
 
-                g2.setColor(COLOR_CHARCOAL);
+                g2.setColor(Theme.TEXT);
                 g2.setFont(FONT_SANS);
                 g2.drawString("Peak: " + hoveredPoint.seqId, tx + 8, ty + 16);
                 g2.drawString(xLabel + ": " + String.format("%.4f ppm", hoveredPoint.x), tx + 8, ty + 31);
@@ -4287,16 +4558,22 @@ public class NmrVisualizer extends JFrame {
             int width = getWidth();
             int height = getHeight();
             
-            g2.setColor(COLOR_WHITE);
+            g2.setColor(Theme.SURFACE);
             g2.fillRect(0, 0, width, height);
             
             int plotWidth = width - marginLeft - marginRight;
             int plotHeight = height - marginTop - marginBottom;
             
-            g2.setColor(COLOR_BLUE_BORDER);
-            g2.drawRect(marginLeft, marginTop, plotWidth, plotHeight);
-            
             if (points.isEmpty() && contourLines.isEmpty() && trace.length == 0) {
+                // The usual margins are lopsided on purpose - the left gutter
+                // holds ppm labels and the bottom holds the axis title - which
+                // reads as a misplaced box when there are no labels to make
+                // room for. With nothing loaded, centre it instead.
+                int inset = Math.min(marginLeft, Math.min(width, height) / 8);
+                int emptyW = width - 2 * inset;
+                int emptyH = height - 2 * inset;
+                g2.setColor(Theme.BORDER);
+                g2.drawRect(inset, inset, emptyW, emptyH);
                 // "NO DATA LOADED" alone left the two non-obvious things unsaid:
                 // where loading starts, and that a Bruker dataset is a folder
                 // rather than a file - which no file dialog hints at.
@@ -4310,19 +4587,21 @@ public class NmrVisualizer extends JFrame {
                     "plots a worked example.",
                 };
                 int lineHeight = g2.getFontMetrics(FONT_SANS).getHeight();
-                int top = marginTop + (plotHeight - lines.length * lineHeight) / 2;
+                int top = inset + (emptyH - lines.length * lineHeight) / 2 + lineHeight;
                 for (int i = 0; i < lines.length; i++) {
                     if (lines[i].isEmpty()) continue;
                     // The heading carries the weight; the rest is instruction.
                     boolean heading = i == 0;
                     g2.setFont(heading ? FONT_SANS_BOLD : FONT_SANS);
-                    g2.setColor(heading ? COLOR_CHARCOAL : Theme.TEXT_MUTED);
+                    g2.setColor(heading ? Theme.TEXT : Theme.TEXT_MUTED);
                     int w = g2.getFontMetrics().stringWidth(lines[i]);
-                    g2.drawString(lines[i], marginLeft + (plotWidth - w) / 2,
-                            top + i * lineHeight);
+                    g2.drawString(lines[i], inset + (emptyW - w) / 2, top + i * lineHeight);
                 }
                 return;
             }
+
+            g2.setColor(Theme.BORDER);
+            g2.drawRect(marginLeft, marginTop, plotWidth, plotHeight);
 
             if (dimension == 1) {
                 paint1D(g2, width, height, plotWidth, plotHeight);
@@ -4335,25 +4614,25 @@ public class NmrVisualizer extends JFrame {
                 double frac = k / 10.0;
                 int gx = marginLeft + (int)(frac * plotWidth);
                 if (showGrid) {
-                    g2.setColor(COLOR_GRID_LINE);
+                    g2.setColor(Theme.GRID_LINE);
                     g2.drawLine(gx, marginTop, gx, marginTop + plotHeight);
                 }
-                g2.setColor(COLOR_CHARCOAL);
+                g2.setColor(Theme.TEXT);
                 double vx = viewMinX + (invertX ? (1.0 - frac) : frac) * (viewMaxX - viewMinX);
                 g2.drawString(String.format("%.2f", vx), gx - 15, marginTop + plotHeight + 16);
                 
                 int gy = marginTop + (int)(frac * plotHeight);
                 if (showGrid) {
-                    g2.setColor(COLOR_GRID_LINE);
+                    g2.setColor(Theme.GRID_LINE);
                     g2.drawLine(marginLeft, gy, marginLeft + plotWidth, gy);
                 }
-                g2.setColor(COLOR_CHARCOAL);
+                g2.setColor(Theme.TEXT);
                 double vy = viewMinY + (invertY ? (1.0 - frac) : frac) * (viewMaxY - viewMinY);
                 g2.drawString(String.format("%.2f", vy), marginLeft - 45, gy + 5);
             }
             
             // Axes Labels
-            g2.setColor(COLOR_CHARCOAL);
+            g2.setColor(Theme.TEXT);
             g2.setFont(FONT_SANS_BOLD);
             g2.drawString(xLabel + " (PPM)", width / 2 - 20, marginTop + plotHeight + 38);
             
@@ -4413,7 +4692,7 @@ public class NmrVisualizer extends JFrame {
 
             // Render hover tooltip showing 3 parameters & elements
             if (hoveredPoint != null && hoveredScreenPos != null) {
-                g2.setColor(COLOR_PLOT_HOVER); // red highlight
+                g2.setColor(Theme.PLOT_HOVER); // red highlight
                 g2.fillOval(hoveredScreenPos.x - 4, hoveredScreenPos.y - 4, 8, 8);
                 g2.setColor(Color.BLACK);
                 g2.drawOval(hoveredScreenPos.x - 4, hoveredScreenPos.y - 4, 8, 8);
@@ -4437,12 +4716,12 @@ public class NmrVisualizer extends JFrame {
                 }
                 
                 // Classic Windows yellow tooltip
-                g2.setColor(COLOR_TOOLTIP_BG);
+                g2.setColor(Theme.TOOLTIP_BG);
                 g2.fillRect(tx, ty, 220, boxHeight); 
                 g2.setColor(new Color(100, 100, 100)); // gray tooltip border
                 g2.drawRect(tx, ty, 220, boxHeight);
                 
-                g2.setColor(COLOR_CHARCOAL);
+                g2.setColor(Theme.TEXT);
                 g2.setFont(FONT_SANS);
                 g2.drawString(text1, tx + 8, ty + 15);
                 g2.drawString(text2, tx + 8, ty + 30);
@@ -4660,6 +4939,10 @@ public class NmrVisualizer extends JFrame {
             try {
                 UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
             } catch (Exception ex) {}
+            // Before any component exists: a palette chosen after the fact
+            // means the first frame is drawn in the wrong one.
+            Theme.loadSavedMode();
+            Theme.installUiDefaults();
             
             NmrVisualizer app = new NmrVisualizer();
             Runtime.getRuntime().addShutdownHook(new Thread(() -> app.pythonWorker.stop()));

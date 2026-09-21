@@ -296,7 +296,15 @@ def find_bruker_pdata_dir(start_path):
 # Everything up to (and including) the noise estimate depends only on the
 # processing parameters, never on the contour threshold. The serve loop reuses
 # one cached result across every contour request for the same parameters.
+# Prepared spectra, most-recently-used last. Holding more than one matters now
+# that the dataset browser makes moving between spectra a click: with a single
+# slot, going back to the one looked at a moment ago re-read it from disk and
+# re-ran the whole FT/phase/baseline chain.
+#
+# The cost of a slot is the processed matrix - 8 MB for a 1024x1024 double - so
+# a handful is cheap next to the second and a half each re-preparation takes.
 _PREP_CACHE = {}
+_PREP_CACHE_MAX = 4
 
 
 def _prepare_bruker(path, phc0_f2, phc1_f2, phc0_f1, phc1_f1,
@@ -304,6 +312,8 @@ def _prepare_bruker(path, phc0_f2, phc1_f2, phc0_f1, phc1_f1,
     key = (path, phc0_f2, phc1_f2, phc0_f1, phc1_f1,
            baseline_order, calib_x, calib_y)
     if key in _PREP_CACHE:
+        # Re-insert so the most recently used entry is evicted last.
+        _PREP_CACHE[key] = _PREP_CACHE.pop(key)
         return _PREP_CACHE[key]
 
     import os
@@ -448,6 +458,24 @@ def _prepare_bruker(path, phc0_f2, phc1_f2, phc0_f1, phc1_f1,
     x_label = _nuc('acqus',  'NUC1') or '1H'
     y_label = _nuc('acqu2s', 'NUC1') or '15N'
 
+    # Acquisition metadata, so a loaded 2D spectrum can say what produced it.
+    # The 1D branch has always reported these; the 2D branch read the same
+    # parameter files and then threw them away.
+    def _param(key, sub, default=""):
+        try:
+            raw = dic[key][sub]
+        except (KeyError, TypeError):
+            return default
+        if isinstance(raw, str):
+            return raw.replace("<", "").replace(">", "").strip()
+        return raw
+
+    def _float_param(key, sub, default=0.0):
+        try:
+            return float(_param(key, sub, default))
+        except (TypeError, ValueError):
+            return default
+
     prepared = {
         "data_matrix": data_matrix,
         "f2_ppm": f2_ppm,
@@ -456,9 +484,14 @@ def _prepare_bruker(path, phc0_f2, phc1_f2, phc0_f1, phc1_f1,
         "peak": peak,
         "x_label": x_label,
         "y_label": y_label,
+        "pulprog": _param("acqus", "PULPROG"),
+        "solvent": _param("acqus", "SOLVENT"),
+        "sfo1": _float_param("acqus", "SFO1"),
     }
-    _PREP_CACHE.clear()   # only the current parameter set is ever reused
     _PREP_CACHE[key] = prepared
+    # dicts preserve insertion order, so the oldest key is the first one.
+    while len(_PREP_CACHE) > _PREP_CACHE_MAX:
+        _PREP_CACHE.pop(next(iter(_PREP_CACHE)))
     return prepared
 
 def process_bruker(cfg_str):
@@ -552,6 +585,9 @@ def process_bruker(cfg_str):
     peak        = prepared["peak"]
     x_label     = prepared["x_label"]
     y_label     = prepared["y_label"]
+    pulprog     = prepared.get("pulprog", "")
+    solvent     = prepared.get("solvent", "")
+    sfo1        = prepared.get("sfo1", 0.0)
 
     factor  = 1.4
     n_pos   = 14
@@ -697,7 +733,16 @@ def process_bruker(cfg_str):
         "ladder_k_min": k_values[0],
         "ladder_k_max": k_values[-1],
         "ladder_window": n_pos,
-        "contours":     contours_out
+        "contours":     contours_out,
+        "pulprog":      pulprog,
+        "solvent":      solvent,
+        "sfo1":         sfo1,
+        "noise":        noise,
+        "spectrum_size": int(data_matrix.size),
+        "x_min":        round(float(np.min(f2_ppm)), 5),
+        "x_max":        round(float(np.max(f2_ppm)), 5),
+        "y_min":        round(float(np.min(f1_ppm)), 5),
+        "y_max":        round(float(np.max(f1_ppm)), 5),
     }
 
 
